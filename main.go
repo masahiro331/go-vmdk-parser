@@ -87,7 +87,7 @@ func main() {
 	reader := bufio.NewReader(f)
 
 	// Get VMDK Header
-	var header VMDKHeader
+	var header Header
 	if err := binary.Read(reader, binary.LittleEndian, &header); err != nil {
 		log.Fatal(err)
 	}
@@ -112,13 +112,13 @@ func main() {
 		}
 	}
 
-	// ext4, err := os.Create("extfile/0.img")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer ext4.Close()
+	// Read Master Boot Record
+	_, err = reader.Read(sector)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// var extents []*Extent
+	return
 
 	for {
 		_, err := reader.Read(sector)
@@ -321,7 +321,55 @@ func NewSector() Sector {
 
 type SectorType uint64
 
-type VMDKHeader struct {
+type ExtentType int
+
+const (
+	FLAT = iota
+	SPARSE
+	ZERO
+	VMFS
+	VMFSSPARSE
+	VMFSRDM
+	VMFSRAW
+)
+
+type CreateType int
+
+const (
+	custom = iota
+	monolithicSparse
+	monolithicFlat
+	TwoGbMaxExtentSparse
+	TwoGbMaxExtentFlat
+	fullDevice
+	partitionedDevice
+	vmfsPreallocated
+	vmfsEagerZeroedThick
+	vmfsThin
+	vmfsSparse
+	vmfsRDM
+	vmfsRDMP
+	vmfsRaw
+	streamOptimized
+)
+
+type VMDK struct {
+	header             Header
+	embededDescription EmbededDescription
+	reader             *io.Reader
+}
+
+type EmbededDescription struct {
+	Version    int
+	CID        string
+	ParentCID  string
+	CreateType CreateType
+	ExtentType ExtentType
+	Capacity   uint64
+	FileName   string
+}
+
+type Header struct {
 	Signature          uint32
 	Version            uint32
 	Flag               uint32
@@ -342,6 +390,45 @@ type VMDKHeader struct {
 	Padding            [433]byte
 }
 
-func (h *VMDKHeader) CheckSignature() bool {
+func (h *Header) CheckSignature() bool {
 	return h.Signature == 0x564d444b
 }
+
+/*
+# Master Boot Record Spec
+Master Boot Record always 512 bytes.
++-------------------------------+
+|         Name           | Byte |
++------------------------+------+
+| Bootstrap Code Area    | 446  |
+| Partion 1              | 16   |
+| Partion 2              | 16   |
+| Partion 3              | 16   |
+| Partion 4              | 16   |
+| Boot Recore Sigunature | 2    |
++-------------------------------+
+
+# Partion Spec
++-------------------+------+----------------------------------------------------------+
+|        Name       | Byte |                        Description                       |
++-------------------+------+----------------------------------------------------------+
+| Boot Indicator    | 1    | Boot Partion                                             |
+| Staring CHS value | 3    | Starting sector of the partition in Cylinder Head Sector |
+| Partition type    | 1    | FileSystem used by the partition	                      |
+| Ending CHS values | 3    | Ending sector of the partition in Cylinder Head Sector   |
+| Starting Sector   | 4    | Starting sector of the active partition                  |
+| Partition Sizea   | 4    | Represents partition size in sectors                     |
++-------------------+------+----------------------------------------------------------+
+
+
+ref: https://www.ijais.org/research/volume10/number8/sadi-2016-ijais-451541.pdf
+*/
+type MasterBootRecord struct {
+	BootCodeArea [446]byte
+	Partition1   Pertision
+	Partition2   Pertision
+	Partition3   Pertision
+	Partition4   Pertision
+	Signature    int16
+}
+type Pertision [16]byte
