@@ -64,6 +64,8 @@ func (sector Sector) GetMarker() *Marker {
 	}
 }
 
+var count int
+
 func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("required [vmdk] arguments")
@@ -96,6 +98,7 @@ func main() {
 	}
 	fmt.Println(embDescriptor)
 
+	var fileBuffer []byte
 	for {
 		_, err := reader.Read(sector)
 		if err == io.EOF {
@@ -109,9 +112,14 @@ func main() {
 		switch m.Type {
 		case MARKER_GRAIN:
 			// fmt.Println("=== GRAIN ===")
+			var gd []byte
+
 			if m.Size < 500 {
+				fileBuffer = append(fileBuffer, m.Data[:m.Size]...)
 				break
 			}
+
+			gd = append(gd, m.Data...)
 			limit := uint64(math.Ceil(float64(m.Size-500) / float64(SECTOR_SYZE)))
 			for i := uint64(0); i < limit; i++ {
 				_, err := reader.Read(sector)
@@ -120,13 +128,24 @@ func main() {
 				} else if err != nil {
 					log.Fatal(err)
 				}
+				gd = append(gd, sector...)
 			}
+			fileBuffer = append(fileBuffer, gd[:m.Size]...)
 
 		case MARKER_GT:
-			fmt.Println("====== GRAIN TABLE ======")
+			// fmt.Println("====== GRAIN TABLE ======")
 			// GRAIN TABLE always 512 entries
 			// GRAIN TABLE ENTRY is 32bit
 			// GRAIN TABLE is 2KB
+
+			// ** test code ** //
+			file, err := os.Create(fmt.Sprintf("data/file%02d.zlib", count))
+			if err != nil {
+				log.Fatal(err)
+			}
+			file.Write(fileBuffer)
+			fileBuffer = []byte{}
+
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
 				if err == io.EOF {
@@ -135,11 +154,10 @@ func main() {
 					log.Fatal(err)
 				}
 			}
-			fmt.Printf("%+v\n", m)
-		case MARKER_EOS:
+			count = count + 1
 		case MARKER_GD:
-			fmt.Println("====== GRAIN DIRECTORY ======")
-			fmt.Printf("%+v\n", m)
+			// fmt.Println("====== GRAIN DIRECTORY ======")
+			// fmt.Printf("%+v\n", m)
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
 				if err == io.EOF {
@@ -149,8 +167,8 @@ func main() {
 				}
 			}
 		case MARKER_FOOTER:
-			fmt.Println("====== GRAIN FOOTER ======")
-			fmt.Printf("%+v\n", m)
+			// fmt.Println("====== GRAIN FOOTER ======")
+			// fmt.Printf("%+v\n", m)
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
 				if err == io.EOF {
@@ -159,11 +177,12 @@ func main() {
 					log.Fatal(err)
 				}
 			}
-
+		case MARKER_EOS:
 		default:
-			fmt.Printf("%+v\n", m)
+			log.Fatal("unexpected error")
 		}
 	}
+
 }
 
 func NewSector() Sector {
