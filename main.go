@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strings"
 )
 
 const (
@@ -20,7 +21,10 @@ const (
 	MARKER_FOOTER = uint32(0x00000003)
 	MARKER_GRAIN  = uint32(0xffffffff)
 
+	COWD = uint32(0x434f5744)
+
 	EMBEDDED_DESCRIPTOR_SIZE = 0xfe00 // 0x10000 - 0x200(VMDK HEADER)
+
 )
 
 type Sector []byte
@@ -86,8 +90,15 @@ func main() {
 	}
 	fmt.Printf("%+v\n", header)
 
-	sector := NewSector()
+	// reader = bufio.NewReader(f)
+	// f.Seek(0, 0)
+	// var header2 VMDKHeader
+	// if err := binary.Read(reader, binary.LittleEndian, &header2); err != nil {
+	// 	log.Fatal(err)
+	// }
+	// fmt.Printf("%+v\n", header2)
 
+	sector := NewSector()
 	// Get VMDK embedded descriptor
 	var embDescriptor string
 	for i := 0; i < 2; i++ {
@@ -96,9 +107,13 @@ func main() {
 		}
 		embDescriptor = embDescriptor + string(sector)
 	}
-	fmt.Println(embDescriptor)
+	fmt.Println(strings.TrimSpace(embDescriptor))
 
-	var fileBuffer []byte
+	// ext4, err  :=  os.Create("ima.0")
+	// if err != nil {
+	//   log.Fatal(err)
+	// }
+
 	for {
 		_, err := reader.Read(sector)
 		if err == io.EOF {
@@ -111,11 +126,20 @@ func main() {
 
 		switch m.Type {
 		case MARKER_GRAIN:
+			fmt.Println(m.Value)
 			// fmt.Println("=== GRAIN ===")
 			var gd []byte
+			var fileBuffer []byte
+			count = count + 1
+			file, err := os.Create(fmt.Sprintf("data/file%04d.zlib", count))
+			if err != nil {
+				log.Fatal(err)
+			}
 
 			if m.Size < 500 {
 				fileBuffer = append(fileBuffer, m.Data[:m.Size]...)
+				file.Write(fileBuffer)
+				file.Close()
 				break
 			}
 
@@ -131,21 +155,14 @@ func main() {
 				gd = append(gd, sector...)
 			}
 			fileBuffer = append(fileBuffer, gd[:m.Size]...)
+			file.Write(fileBuffer)
+			file.Close()
 
 		case MARKER_GT:
-			// fmt.Println("====== GRAIN TABLE ======")
 			// GRAIN TABLE always 512 entries
 			// GRAIN TABLE ENTRY is 32bit
 			// GRAIN TABLE is 2KB
-
 			// ** test code ** //
-			file, err := os.Create(fmt.Sprintf("data/file%02d.zlib", count))
-			if err != nil {
-				log.Fatal(err)
-			}
-			file.Write(fileBuffer)
-			fileBuffer = []byte{}
-
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
 				if err == io.EOF {
@@ -154,9 +171,7 @@ func main() {
 					log.Fatal(err)
 				}
 			}
-			count = count + 1
 		case MARKER_GD:
-			// fmt.Println("====== GRAIN DIRECTORY ======")
 			// fmt.Printf("%+v\n", m)
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
@@ -167,7 +182,6 @@ func main() {
 				}
 			}
 		case MARKER_FOOTER:
-			// fmt.Println("====== GRAIN FOOTER ======")
 			// fmt.Printf("%+v\n", m)
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
@@ -182,7 +196,6 @@ func main() {
 			log.Fatal("unexpected error")
 		}
 	}
-
 }
 
 func NewSector() Sector {
