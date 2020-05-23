@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -109,11 +111,13 @@ func main() {
 	}
 	fmt.Println(strings.TrimSpace(embDescriptor))
 
-	// ext4, err  :=  os.Create("ima.0")
-	// if err != nil {
-	//   log.Fatal(err)
-	// }
+	ext4, err := os.Create("extfile/0.img")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ext4.Close()
 
+L:
 	for {
 		_, err := reader.Read(sector)
 		if err == io.EOF {
@@ -127,19 +131,36 @@ func main() {
 		switch m.Type {
 		case MARKER_GRAIN:
 			fmt.Println(m.Value)
+			if m.Value > 48331 {
+				break L
+			}
+			if m.Value < 2048 {
+				continue
+			}
+			m.Value = m.Value - 2048
+
+			ext4.Seek(int64(m.Value*512), 0)
+
 			// fmt.Println("=== GRAIN ===")
 			var gd []byte
 			var fileBuffer []byte
 			count = count + 1
-			file, err := os.Create(fmt.Sprintf("data/file%04d.zlib", count))
+			// file, err := os.Create(fmt.Sprintf("data/file%04d.zlib", count))
 			if err != nil {
 				log.Fatal(err)
 			}
 
 			if m.Size < 500 {
 				fileBuffer = append(fileBuffer, m.Data[:m.Size]...)
-				file.Write(fileBuffer)
-				file.Close()
+				bReader := bytes.NewReader(fileBuffer)
+				zReader, err := zlib.NewReader(bReader)
+				if err != nil {
+					log.Fatal(err)
+				}
+				io.Copy(ext4, zReader)
+
+				// file.Write(fileBuffer)
+				// file.Close()
 				break
 			}
 
@@ -155,8 +176,15 @@ func main() {
 				gd = append(gd, sector...)
 			}
 			fileBuffer = append(fileBuffer, gd[:m.Size]...)
-			file.Write(fileBuffer)
-			file.Close()
+			bReader := bytes.NewReader(fileBuffer)
+			zReader, err := zlib.NewReader(bReader)
+			if err != nil {
+				log.Fatal(err)
+			}
+			io.Copy(ext4, zReader)
+
+			// file.Write(fileBuffer)
+			// file.Close()
 
 		case MARKER_GT:
 			// GRAIN TABLE always 512 entries
@@ -192,6 +220,7 @@ func main() {
 				}
 			}
 		case MARKER_EOS:
+			fmt.Printf("======= EOS =======")
 		default:
 			log.Fatal("unexpected error")
 		}
