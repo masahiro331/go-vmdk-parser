@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -92,32 +93,33 @@ func main() {
 	}
 	fmt.Printf("%+v\n", header)
 
-	// reader = bufio.NewReader(f)
-	// f.Seek(0, 0)
-	// var header2 VMDKHeader
-	// if err := binary.Read(reader, binary.LittleEndian, &header2); err != nil {
-	// 	log.Fatal(err)
-	// }
-	// fmt.Printf("%+v\n", header2)
-
 	sector := NewSector()
 	// Get VMDK embedded descriptor
 	var embDescriptor string
-	for i := 0; i < 2; i++ {
+	for i := SectorType(0); i < header.DescriptorSize; i++ {
 		if _, err := reader.Read(sector); err != nil {
 			log.Fatal(err)
 		}
 		embDescriptor = embDescriptor + string(sector)
 	}
+	// TODO: Parse Descriptor
 	fmt.Println(strings.TrimSpace(embDescriptor))
 
-	ext4, err := os.Create("extfile/0.img")
-	if err != nil {
-		log.Fatal(err)
+	// Trim vmdk head Metadata
+	for i := SectorType(0); i < (header.OverHead - header.DescriptorOffset - header.DescriptorSize); i++ {
+		if _, err := reader.Read(sector); err != nil {
+			log.Fatal(err)
+		}
 	}
-	defer ext4.Close()
 
-L:
+	// ext4, err := os.Create("extfile/0.img")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer ext4.Close()
+
+	// var extents []*Extent
+
 	for {
 		_, err := reader.Read(sector)
 		if err == io.EOF {
@@ -130,18 +132,25 @@ L:
 
 		switch m.Type {
 		case MARKER_GRAIN:
-			fmt.Println(m.Value)
-			if m.Value > 48331 {
-				break L
-			}
-			if m.Value < 2048 {
-				continue
-			}
-			m.Value = m.Value - 2048
+			// if len(extents) == 0 {
+			// 	ext, err := NewExtent(fmt.Sprintf("%d.img", len(extents)), int64(m.Value), true)
+			// 	if err != nil {
+			// 		log.Fatal(err)
+			// 	}
+			// 	extents[0] = ext
+			// }
 
-			ext4.Seek(int64(m.Value*512), 0)
+			// if m.Value > 48331 {
+			// 	break L
+			// }
+			// if m.Value < 2048 {
+			// 	continue
+			// }
+			// m.Value = m.Value - 2048
 
-			// fmt.Println("=== GRAIN ===")
+			// ext4.Seek(int64(m.Value*512), 0)
+
+			fmt.Println("=== GRAIN ===")
 			var gd []byte
 			var fileBuffer []byte
 			count = count + 1
@@ -152,12 +161,12 @@ L:
 
 			if m.Size < 500 {
 				fileBuffer = append(fileBuffer, m.Data[:m.Size]...)
-				bReader := bytes.NewReader(fileBuffer)
-				zReader, err := zlib.NewReader(bReader)
-				if err != nil {
-					log.Fatal(err)
-				}
-				io.Copy(ext4, zReader)
+				// bReader := bytes.NewReader(fileBuffer)
+				// zReader, err := zlib.NewReader(bReader)
+				// if err != nil {
+				// 	log.Fatal(err)
+				// }
+				// io.Copy(ext4, zReader)
 
 				// file.Write(fileBuffer)
 				// file.Close()
@@ -176,17 +185,25 @@ L:
 				gd = append(gd, sector...)
 			}
 			fileBuffer = append(fileBuffer, gd[:m.Size]...)
-			bReader := bytes.NewReader(fileBuffer)
-			zReader, err := zlib.NewReader(bReader)
-			if err != nil {
-				log.Fatal(err)
-			}
-			io.Copy(ext4, zReader)
+			// bReader := bytes.NewReader(fileBuffer)
+			// zReader, err := zlib.NewReader(bReader)
+			// if err != nil {
+			// 	log.Fatal(err)
+			// }
+			// io.Copy(ext4, zReader)
 
 			// file.Write(fileBuffer)
 			// file.Close()
-
+		case MARKER_EOS:
+			fmt.Println("=== EOS ===")
+			// if len(extents) != 0 {
+			// 	err := extents[len(extents)-1].Close()
+			// 	if err != nil {
+			// 		log.Fatal(err)
+			// 	}
+			// }
 		case MARKER_GT:
+			fmt.Println("=== TABLE ===")
 			// GRAIN TABLE always 512 entries
 			// GRAIN TABLE ENTRY is 32bit
 			// GRAIN TABLE is 2KB
@@ -200,6 +217,7 @@ L:
 				}
 			}
 		case MARKER_GD:
+			fmt.Println("=== DIREC ===")
 			// fmt.Printf("%+v\n", m)
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
@@ -210,6 +228,7 @@ L:
 				}
 			}
 		case MARKER_FOOTER:
+			fmt.Println("=== FOOTER ===")
 			// fmt.Printf("%+v\n", m)
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
@@ -219,12 +238,81 @@ L:
 					log.Fatal(err)
 				}
 			}
-		case MARKER_EOS:
-			fmt.Printf("======= EOS =======")
 		default:
 			log.Fatal("unexpected error")
 		}
 	}
+}
+
+type Extent struct {
+	File       *os.File
+	pos        int64
+	compressed bool
+	isClose    bool
+}
+
+func NewExtent(filename string, pos int64, comporessed bool) (*Extent, error) {
+	file, err := os.Create(filename)
+	if err != nil {
+		return nil, err
+	}
+	return &Extent{
+		File:       file,
+		pos:        pos,
+		compressed: comporessed,
+	}, nil
+}
+
+func (e *Extent) Write(p []byte) (int, error) {
+	if e.compressed {
+		r, err := zlib.NewReader(bytes.NewReader(p))
+		if err != nil {
+			log.Fatal(err)
+		}
+		n, err := io.Copy(e.File, r)
+		if err != nil {
+			return 0, err
+		}
+		return int(n), nil
+	} else {
+		n, err := e.File.Write(p)
+		if err != nil {
+			return 0, err
+		}
+		return n, nil
+	}
+}
+
+// TODO: Not Support Read
+func (e *Extent) Read(p []byte) (int, error) {
+	return 0, errors.New("Unsupported Read")
+}
+
+// Not Support whenece 2
+func (e *Extent) Seek(offset int64, whence int) (ret int64, err error) {
+	switch whence {
+	case 0:
+		e.pos = offset
+	case 1:
+		e.pos += offset
+		// f.pos = f.GetSize() - offset
+	default:
+		return 0, errors.New("Unsupported whence")
+	}
+
+	return e.pos, nil
+}
+
+func (e *Extent) Close() error {
+	if err := e.File.Close(); err != nil {
+		return err
+	}
+	e.isClose = true
+	return nil
+}
+
+func (e *Extent) IsClose() bool {
+	return e.isClose
 }
 
 func NewSector() Sector {
