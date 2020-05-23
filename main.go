@@ -24,9 +24,7 @@ const (
 	MARKER_GRAIN  = uint32(0xffffffff)
 
 	COWD = uint32(0x434f5744)
-
-	EMBEDDED_DESCRIPTOR_SIZE = 0xfe00 // 0x10000 - 0x200(VMDK HEADER)
-
+	KDMV = uint32(0x564d444b)
 )
 
 type Sector []byte
