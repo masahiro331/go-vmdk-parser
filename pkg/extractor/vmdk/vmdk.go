@@ -2,6 +2,7 @@ package vmdk
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log"
 	"strings"
@@ -15,14 +16,14 @@ type Header struct {
 	Signature          uint32
 	Version            uint32
 	Flag               uint32
-	Capacity           uint32
-	GrainSize          uint32
-	DescriptorOffset   uint32
-	DescriptorSize     uint32
+	Capacity           uint64
+	GrainSize          uint64
+	DescriptorOffset   uint64
+	DescriptorSize     uint64
 	NumGTEsPerGT       uint32
-	RgdOffset          uint32
-	GdOffset           uint32
-	OverHead           uint32
+	RgdOffset          uint64
+	GdOffset           uint64
+	OverHead           uint64
 	UncleanShutdown    byte
 	SingleEndLineChar  byte
 	NonEndLineChar     byte
@@ -32,18 +33,16 @@ type Header struct {
 	Padding            [433]byte
 }
 
+type FileMap map[string][][]byte
+
 // Expected CompressedGrainData or GrainData
 type VMDK interface {
-	io.ReadCloser
+	// Extract(ctx context.Context, imageName string, filenames []string) (FileMap, error)
+	ExtractFromFile(r io.Reader, filenames []string) (FileMap, error)
 }
 
 // WARN: NewVMDKReader read Header
-func NewVMDKReader(r io.Reader) (io.ReadCloser, error) {
-	sector := make([]byte, Sector)
-	if _, err := r.Read(sector); err != nil {
-		return nil, xerrors.Errorf("failed to new vmdk reader error: %w", err)
-	}
-
+func NewExtractor(r io.Reader) (VMDK, error) {
 	var header Header
 	if err := binary.Read(r, binary.LittleEndian, &header); err != nil {
 		return nil, xerrors.Errorf("failed to read binary error: %w", err)
@@ -54,15 +53,17 @@ func NewVMDKReader(r io.Reader) (io.ReadCloser, error) {
 		return nil, xerrors.New("Unsupported vmdk format")
 	}
 
+	sector := make([]byte, Sector)
 	var embDescriptor string
-	for i := uint32(0); i < header.DescriptorSize; i++ {
+	for i := uint64(0); i < header.DescriptorSize; i++ {
 		if _, err := r.Read(sector); err != nil {
 			log.Fatal(err)
 		}
 		embDescriptor = embDescriptor + string(sector)
 	}
+	fmt.Println(embDescriptor)
 
-	extent, err := newExtent(embDescriptor, header, r)
+	extent, err := newExtent(embDescriptor, header)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to new vmdk reader: %w", err)
 	}
@@ -72,11 +73,10 @@ func NewVMDKReader(r io.Reader) (io.ReadCloser, error) {
 
 // TODO: Parse EmbededDescriptor
 // https://www.vmware.com/support/developer/vddk/vmdk_50_technote.pdf
-func newExtent(s string, header Header, r io.Reader) (VMDK, error) {
+func newExtent(s string, header Header) (VMDK, error) {
 	if strings.Contains(s, `createType="streamOptimized"`) {
 		return &StreamOptimizedExtent{
 			header: header,
-			reader: r,
 		}, nil
 	} else {
 		return nil, xerrors.New("Unsupported createType")
