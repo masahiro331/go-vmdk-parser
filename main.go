@@ -366,21 +366,23 @@ const (
 type CreateType int
 
 const (
-	custom = iota
-	monolithicSparse
-	monolithicFlat
-	TwoGbMaxExtentSparse
-	TwoGbMaxExtentFlat
-	fullDevice
-	partitionedDevice
-	vmfsPreallocated
-	vmfsEagerZeroedThick
-	vmfsThin
-	vmfsSparse
-	vmfsRDM
-	vmfsRDMP
-	vmfsRaw
-	streamOptimized
+	StreamOptimized = iota
+
+/* Not Support */
+// 	Custom
+// 	MonolithicSparse
+// 	MonolithicFlat
+// 	TwoGbMaxExtentSparse
+// 	TwoGbMaxExtentFlat
+// 	FullDevice
+// 	PartitionedDevice
+// 	VmfsPreallocated
+// 	VmfsEagerZeroedThick
+// 	VmfsThin
+// 	VmfsSparse
+// 	VmfsRDM
+// 	VmfsRDMP
+// 	VmfsRaw
 )
 
 func NewVMDK(reader *io.Reader) (*VMDK, error) {
