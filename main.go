@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	GD_AT_END   = 0xffffffffffffffff
 	SECTOR_SYZE = uint32(0x200)
 
 	MARKER_EOS    = uint32(0x00000000)
@@ -42,16 +41,17 @@ type Marker struct {
 
 /*
 ### Marker Specs ( 512 bytes )
++--------+------+-------------+
 | Offset | Size | Description |
++--------+------+-------------+
 | 0      | 8    | Value       |
 | 8      | 4    | Data Size   |
-
-if marker DataSize == 0
 | 12     | 4    | Marker Type |
 | 16     | 496  | Padding     |
-
-if marker size > 0
++--------+------+-------------+
+| if marker size > 0          |
 | 12     | ...  | GrainData   |
++--------+------+-------------+
 */
 func (sector Sector) GetMarker() *Marker {
 	size := binary.LittleEndian.Uint32(sector[8:12])
@@ -70,8 +70,6 @@ func (sector Sector) GetMarker() *Marker {
 		}
 	}
 }
-
-var count int
 
 func main() {
 	if len(os.Args) < 2 {
@@ -113,14 +111,70 @@ func main() {
 	}
 
 	// Read Master Boot Record
-	_, err = reader.Read(sector)
-	if err != nil {
-		log.Fatal(err)
+	var mbr MasterBootRecord
+	var fileBuffer []byte
+	for {
+		_, err = reader.Read(sector)
+		if err != nil {
+			log.Fatal(err)
+		}
+		m := sector.GetMarker()
+		if m.Type != MARKER_GRAIN {
+			log.Fatal("Unsupported vmdk create file type")
+		}
+
+		// file, err := os.Create(fmt.Sprintf("data/file%04d.zlib", count))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if m.Size < 500 {
+			fileBuffer = append(fileBuffer, m.Data[:m.Size]...)
+			break
+		}
+
+		var gd []byte
+		gd = append(gd, m.Data...)
+		limit := uint64(math.Ceil(float64(m.Size-500) / float64(SECTOR_SYZE)))
+		for i := uint64(0); i < limit; i++ {
+			_, err := reader.Read(sector)
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				log.Fatal(err)
+			}
+			gd = append(gd, sector...)
+		}
+		fileBuffer = append(fileBuffer, gd[:m.Size]...)
+
+		r, err := zlib.NewReader(bytes.NewReader(fileBuffer))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if err := binary.Read(r, binary.BigEndian, &mbr); err != nil {
+			log.Fatal(err)
+		}
+		if mbr.Partition1.Exist() {
+			fmt.Printf("start sector: %d\n", mbr.Partition1.GetStartSector())
+			fmt.Printf("sector size: %d\n", mbr.Partition1.GetSize())
+		}
+		if mbr.Partition2.Exist() {
+			fmt.Printf("start sector: %d\n", mbr.Partition2.GetStartSector())
+			fmt.Printf("sector size: %d\n", mbr.Partition2.GetSize())
+		}
+		break
 	}
 
-	return
+	img0, _ := os.Create("extfile/0.img")
+	img1, _ := os.Create("extfile/1.img")
+	defer img0.Close()
+	defer img1.Close()
+	ext4s := []*os.File{img0, img1}
+	var count int
 
 	for {
+
 		_, err := reader.Read(sector)
 		if err == io.EOF {
 			break
@@ -129,31 +183,24 @@ func main() {
 		}
 
 		m := sector.GetMarker()
+		if m.Value == uint64(mbr.Partition2.GetStartSector()) {
+			fmt.Println(m.Value)
+			count = count + 1
+			fmt.Println(count)
+		}
 
 		switch m.Type {
 		case MARKER_GRAIN:
-			// if len(extents) == 0 {
-			// 	ext, err := NewExtent(fmt.Sprintf("%d.img", len(extents)), int64(m.Value), true)
-			// 	if err != nil {
-			// 		log.Fatal(err)
-			// 	}
-			// 	extents[0] = ext
-			// }
+			if count == 0 {
+				m.Value = m.Value - uint64(mbr.Partition1.GetStartSector())
+			} else if count == 1 {
+				m.Value = m.Value - uint64(mbr.Partition2.GetStartSector())
+			}
 
-			// if m.Value > 48331 {
-			// 	break L
-			// }
-			// if m.Value < 2048 {
-			// 	continue
-			// }
-			// m.Value = m.Value - 2048
+			ext4s[count].Seek(int64(m.Value*512), 0)
 
-			// ext4.Seek(int64(m.Value*512), 0)
-
-			fmt.Println("=== GRAIN ===")
 			var gd []byte
 			var fileBuffer []byte
-			count = count + 1
 			// file, err := os.Create(fmt.Sprintf("data/file%04d.zlib", count))
 			if err != nil {
 				log.Fatal(err)
@@ -161,15 +208,12 @@ func main() {
 
 			if m.Size < 500 {
 				fileBuffer = append(fileBuffer, m.Data[:m.Size]...)
-				// bReader := bytes.NewReader(fileBuffer)
-				// zReader, err := zlib.NewReader(bReader)
-				// if err != nil {
-				// 	log.Fatal(err)
-				// }
-				// io.Copy(ext4, zReader)
-
-				// file.Write(fileBuffer)
-				// file.Close()
+				bReader := bytes.NewReader(fileBuffer)
+				zReader, err := zlib.NewReader(bReader)
+				if err != nil {
+					log.Fatal(err)
+				}
+				io.Copy(ext4s[count], zReader)
 				break
 			}
 
@@ -185,29 +229,18 @@ func main() {
 				gd = append(gd, sector...)
 			}
 			fileBuffer = append(fileBuffer, gd[:m.Size]...)
-			// bReader := bytes.NewReader(fileBuffer)
-			// zReader, err := zlib.NewReader(bReader)
-			// if err != nil {
-			// 	log.Fatal(err)
-			// }
-			// io.Copy(ext4, zReader)
+			bReader := bytes.NewReader(fileBuffer)
+			zReader, err := zlib.NewReader(bReader)
+			if err != nil {
+				log.Fatal(err)
+			}
+			io.Copy(ext4s[count], zReader)
 
-			// file.Write(fileBuffer)
-			// file.Close()
 		case MARKER_EOS:
-			fmt.Println("=== EOS ===")
-			// if len(extents) != 0 {
-			// 	err := extents[len(extents)-1].Close()
-			// 	if err != nil {
-			// 		log.Fatal(err)
-			// 	}
-			// }
 		case MARKER_GT:
-			fmt.Println("=== TABLE ===")
 			// GRAIN TABLE always 512 entries
 			// GRAIN TABLE ENTRY is 32bit
 			// GRAIN TABLE is 2KB
-			// ** test code ** //
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
 				if err == io.EOF {
@@ -217,8 +250,6 @@ func main() {
 				}
 			}
 		case MARKER_GD:
-			fmt.Println("=== DIREC ===")
-			// fmt.Printf("%+v\n", m)
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
 				if err == io.EOF {
@@ -228,8 +259,6 @@ func main() {
 				}
 			}
 		case MARKER_FOOTER:
-			fmt.Println("=== FOOTER ===")
-			// fmt.Printf("%+v\n", m)
 			for i := uint64(0); i < m.Value; i++ {
 				_, err := reader.Read(sector)
 				if err == io.EOF {
@@ -241,6 +270,7 @@ func main() {
 		default:
 			log.Fatal("unexpected error")
 		}
+
 	}
 }
 
@@ -353,6 +383,10 @@ const (
 	streamOptimized
 )
 
+func NewVMDK(reader *io.Reader) (*VMDK, error) {
+	return nil, nil
+}
+
 type VMDK struct {
 	header             Header
 	embededDescription EmbededDescription
@@ -417,7 +451,7 @@ Master Boot Record always 512 bytes.
 | Partition type    | 1    | FileSystem used by the partition	                      |
 | Ending CHS values | 3    | Ending sector of the partition in Cylinder Head Sector   |
 | Starting Sector   | 4    | Starting sector of the active partition                  |
-| Partition Sizea   | 4    | Represents partition size in sectors                     |
+| Partition Size    | 4    | Represents partition size in sectors                     |
 +-------------------+------+----------------------------------------------------------+
 
 
@@ -425,10 +459,25 @@ ref: https://www.ijais.org/research/volume10/number8/sadi-2016-ijais-451541.pdf
 */
 type MasterBootRecord struct {
 	BootCodeArea [446]byte
-	Partition1   Pertision
-	Partition2   Pertision
-	Partition3   Pertision
-	Partition4   Pertision
-	Signature    int16
+	Partition1   Partision
+	Partition2   Partision
+	Partition3   Partision
+	Partition4   Partision
+	Signature    uint16
 }
-type Pertision [16]byte
+type Partision [16]byte
+
+func (p *Partision) GetStartSector() uint32 {
+	return binary.LittleEndian.Uint32(p[8:12])
+}
+
+func (p *Partision) GetSize() uint32 {
+	return binary.LittleEndian.Uint32(p[12:])
+}
+
+func (p *Partision) Exist() bool {
+	if p[4] == 0x00 {
+		return false
+	}
+	return true
+}
