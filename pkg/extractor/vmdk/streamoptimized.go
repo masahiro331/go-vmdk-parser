@@ -32,28 +32,14 @@ func (s *StreamOptimizedExtent) ExtractFromFile(r io.Reader, filenames []string)
 	var partitionOffset = -1
 	var mbr *disk.MasterBootRecord
 	for {
-		//
-
 		if _, err := r.Read(sector); err != nil {
 			return nil, xerrors.Errorf("failed to read marker error: %w", err)
 		}
 
 		m := parseMarker(sector)
-		// Skip Disk Metadata
-		// if uint64(mbr.Partitions[partitionOffset].GetStartSector()) < m.Value {
-		// 	continue
-		// }
-
-		// Check Partision
-		// if partitionOffset != len(mbr.Partitions)-1 && m.Type == MARKER_GRAIN &&
-		// 	m.Value == uint64(mbr.Partitions[partitionOffset+1].GetStartSector()) {
-		// }
-
-		fn := fmt.Sprintf("%d.img", partitionOffset)
 
 		switch m.Type {
 		case MARKER_GRAIN:
-
 			buf := new(bytes.Buffer)
 			if m.Size < 500 {
 				// buf = append(buf, m.Data[:m.Size]...)
@@ -66,8 +52,6 @@ func (s *StreamOptimizedExtent) ExtractFromFile(r io.Reader, filenames []string)
 					if _, err := r.Read(sector); err != nil {
 						return nil, xerrors.Errorf("failed to read Grain Data error: %w", err)
 					}
-					// あまりでやらないとミスってる気がする...?
-					// buf = append(buf, sector...)
 					buf.Write(sector)
 				}
 			}
@@ -77,11 +61,9 @@ func (s *StreamOptimizedExtent) ExtractFromFile(r io.Reader, filenames []string)
 				if err != nil {
 					return nil, xerrors.Errorf("failed to read zlib error: %w", err)
 				}
-
 				// Read Master Boot Record
 				// TODO: Support GPT disk type
 				mbr, err = disk.NewMasterBootRecord(zr)
-				// mbr, err = disk.NewMasterBootRecord(buf2)
 				if err != nil {
 					return nil, xerrors.Errorf("failed to parse disk error: %w", err)
 				}
@@ -93,10 +75,11 @@ func (s *StreamOptimizedExtent) ExtractFromFile(r io.Reader, filenames []string)
 
 			} else {
 				// Check Partision
-				if m.Value == uint64((mbr.Partitions[partitionOffset].GetSize() + mbr.Partitions[partitionOffset].GetStartSector())) {
+				if m.Value == uint64(mbr.Partitions[partitionOffset].GetSize()+mbr.Partitions[partitionOffset].GetStartSector()) {
 					partitionOffset = partitionOffset + 1
 				}
 
+				fn := fmt.Sprintf("%d.img", partitionOffset)
 				filemap[fn] = append(filemap[fn], buf.Bytes())
 			}
 

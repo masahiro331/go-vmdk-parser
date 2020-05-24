@@ -32,10 +32,15 @@ func main() {
 	for name, bytesa := range filemap {
 		fmt.Printf("%s: %d bytes\n", name, len(bytesa))
 		f, _ := os.Create(name)
+		for _, buff := range bytesa {
+			b := bytes.NewReader(buff)
 
-		for _, b := range bytesa {
-			zr, _ := zlib.NewReader(bytes.NewReader(b))
-			io.Copy(f, zr)
+			r, err := zlib.NewReader(b)
+			if err != nil {
+				panic(err)
+			}
+			io.Copy(f, r)
+			r.Close()
 		}
 	}
 }
