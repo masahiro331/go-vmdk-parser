@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/masahiro331/go-vmdk-parser/pkg/disk"
 	"golang.org/x/xerrors"
 )
 
@@ -39,6 +40,40 @@ type FileMap map[string][][]byte
 type VMDK interface {
 	// Extract(ctx context.Context, imageName string, filenames []string) (FileMap, error)
 	ExtractFromFile(r io.Reader, filenames []string) (FileMap, error)
+}
+
+type Reader interface {
+	io.ReadCloser
+	Next() (*disk.Partition, error)
+}
+
+func NewReader(r io.Reader, dict []byte) (Reader, error) {
+	var header Header
+	if err := binary.Read(r, binary.LittleEndian, &header); err != nil {
+		return nil, xerrors.Errorf("failed to read binary error: %w", err)
+	}
+
+	// TODO: RAW extent data file is unsupported
+	if header.DescriptorOffset == 0 {
+		return nil, xerrors.New("Unsupported vmdk format")
+	}
+
+	sector := make([]byte, Sector)
+	var embDescriptor string
+	for i := uint64(0); i < header.DescriptorSize; i++ {
+		if _, err := r.Read(sector); err != nil {
+			log.Fatal(err)
+		}
+		embDescriptor = embDescriptor + string(sector)
+	}
+	fmt.Println(embDescriptor)
+
+	readerFunc, err := newReaderFunc(embDescriptor, header)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to new vmdk reader: %w", err)
+	}
+
+	return readerFunc(r, dict, header)
 }
 
 // WARN: NewVMDKReader read Header
@@ -78,6 +113,14 @@ func newExtent(s string, header Header) (VMDK, error) {
 		return &StreamOptimizedExtent{
 			header: header,
 		}, nil
+	} else {
+		return nil, xerrors.New("Unsupported createType")
+	}
+}
+
+func newReaderFunc(s string, header Header) (func(r io.Reader, dict []byte, header Header) (Reader, error), error) {
+	if strings.Contains(s, `createType="streamOptimized"`) {
+		return NewStreamOptimizedReader, nil
 	} else {
 		return nil, xerrors.New("Unsupported createType")
 	}

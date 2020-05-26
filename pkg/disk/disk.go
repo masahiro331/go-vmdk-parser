@@ -1,8 +1,8 @@
 package disk
 
 import (
+	"bytes"
 	"encoding/binary"
-	"errors"
 	"io"
 
 	"golang.org/x/xerrors"
@@ -46,21 +46,24 @@ type MasterBootRecord struct {
 	Partitions   []Partition
 	Signature    uint16
 }
-type Partition []byte
+
+// type Partition []byte
+
+type Partition struct {
+	Boot        bool
+	StartCHS    [3]byte
+	Type        byte
+	EndCHS      [3]byte
+	StartSector uint32
+	Size        uint32
+}
 
 func (p Partition) GetStartSector() uint32 {
-	return binary.LittleEndian.Uint32(p[8:12])
+	return p.StartSector
 }
 
 func (p Partition) GetSize() uint32 {
-	return binary.LittleEndian.Uint32(p[12:])
-}
-
-func (p Partition) Exist() bool {
-	if p[4] == 0x00 {
-		return false
-	}
-	return true
+	return p.Size
 }
 
 func NewMasterBootRecord(reader io.Reader) (*MasterBootRecord, error) {
@@ -74,17 +77,30 @@ func NewMasterBootRecord(reader io.Reader) (*MasterBootRecord, error) {
 	}
 	signature := binary.LittleEndian.Uint16(buf[510:])
 	if signature != SIGNATURE {
-		return nil, errors.New("Invalid master boot record signature")
+		return nil, xerrors.New("Invalid master boot record signature")
+	}
+
+	// TODO: refactoring
+	var p1 Partition
+	if err := binary.Read(bytes.NewReader(buf[446:462]), binary.LittleEndian, &p1); err != nil {
+		return nil, xerrors.Errorf("Invalid partition1 format: %w", err)
+	}
+	var p2 Partition
+	if err := binary.Read(bytes.NewReader(buf[462:478]), binary.LittleEndian, &p2); err != nil {
+		return nil, xerrors.Errorf("Invalid partition2 format: %w", err)
+	}
+	var p3 Partition
+	if err := binary.Read(bytes.NewReader(buf[478:494]), binary.LittleEndian, &p3); err != nil {
+		return nil, xerrors.Errorf("Invalid partition3 format: %w", err)
+	}
+	var p4 Partition
+	if err := binary.Read(bytes.NewReader(buf[494:510]), binary.LittleEndian, &p4); err != nil {
+		return nil, xerrors.Errorf("Invalid partition4 format: %w", err)
 	}
 
 	return &MasterBootRecord{
 		BootCodeArea: buf[:446],
-		Partitions: []Partition{
-			buf[446:462],
-			buf[462:478],
-			buf[478:494],
-			buf[494:510],
-		},
-		Signature: signature,
+		Partitions:   []Partition{p1, p2, p3, p4},
+		Signature:    signature,
 	}, nil
 }
