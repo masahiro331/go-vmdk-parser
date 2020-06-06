@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"math"
 
 	"github.com/masahiro331/go-vmdk-parser/pkg/disk"
@@ -13,7 +14,8 @@ import (
 )
 
 const (
-	CLUSTER_SIZE = 65536
+	CLUSTER_SIZE = 128
+	SECOTR_SIZE  = 512
 )
 
 type StreamOptimizedExtent struct {
@@ -23,11 +25,13 @@ type StreamOptimizedExtent struct {
 type streamOptimizedExtentReader struct {
 	r io.Reader
 
-	header    Header
-	buffer    *bytes.Buffer
-	sectorPos uint64
-	mbr       *disk.MasterBootRecord
-	partition *disk.Partition
+	err           error
+	header        Header
+	buffer        *bytes.Buffer
+	sectorPos     uint64
+	fileSectorPos uint64
+	mbr           *disk.MasterBootRecord
+	partition     *disk.Partition
 
 	// sectorPos uint64
 }
@@ -60,12 +64,42 @@ func NewStreamOptimizedReader(r io.Reader, dict []byte, header Header) (Reader, 
 	return &reader, nil
 }
 
-func (s *streamOptimizedExtentReader) Read(p []byte) (n int, err error) {
+func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		// TODO
 	}
+
 	for {
-		s.buffer.Read(p)
+		if s.buffer.Len() < len(p) {
+			if s.fileSectorPos != s.sectorPos {
+				s.buffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
+				s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
+				continue
+			}
+
+			_, err := s.readGrainData()
+			if s.partition != nil && s.sectorPos == uint64(s.partition.StartSector+s.partition.Size) {
+				return 0, io.EOF
+			}
+			// s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
+
+			if err != nil {
+				if err == io.EOF {
+					s.err = err
+				}
+				return 0, err
+			}
+
+		} else {
+			n, err := s.buffer.Read(p)
+			if err != nil {
+				log.Println(err)
+			}
+			if s.buffer.Len() == 0 && s.err == io.EOF {
+				return 0, s.err
+			}
+			return n, err
+		}
 	}
 
 	// bufが無くなったら補充する機能
@@ -73,8 +107,6 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (n int, err error) {
 	// bufferより大きなサイズを求められた時
 
 	// 言われたサイズを返す機能
-
-	return 0, nil
 }
 
 func (s *streamOptimizedExtentReader) Next() (*disk.Partition, error) {
@@ -90,6 +122,9 @@ func (s *streamOptimizedExtentReader) Next() (*disk.Partition, error) {
 			}
 		}
 	}
+	if uint64(s.partition.StartSector) == s.sectorPos {
+		return s.partition, nil
+	}
 
 	var err error
 	startSector := uint64(s.partition.StartSector)
@@ -99,11 +134,12 @@ func (s *streamOptimizedExtentReader) Next() (*disk.Partition, error) {
 			if err != nil {
 				return nil, xerrors.Errorf("failed to next error: %w", err)
 			}
-		} else if startSector == s.sectorPos {
-			return s.partition, nil
-		} else {
-			s.buffer.Reset()
+			if startSector == s.sectorPos {
+				// s.fileSectorPos = s.sectorPos + CLUSTER_SIZE
+				return s.partition, nil
+			}
 		}
+		s.buffer.Reset()
 	}
 }
 
@@ -114,10 +150,12 @@ func (s *streamOptimizedExtentReader) readGrainData() (uint64, error) {
 			return 0, xerrors.Errorf("failed to read marker error: %w", err)
 		}
 		m := parseMarker(sector)
-		s.sectorPos = m.Value
-
 		switch m.Type {
 		case MARKER_GRAIN:
+			// s.fileSectorPos = s.sectorPos + CLUSTER_SIZE
+			s.sectorPos = m.Value
+
+			fmt.Println(s.sectorPos)
 			buf := new(bytes.Buffer)
 			if m.Size < 500 {
 				buf.Write(m.Data[:m.Size])
