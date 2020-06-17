@@ -2,7 +2,6 @@ package vmdk
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"log"
 	"strings"
@@ -66,7 +65,6 @@ func NewReader(r io.Reader, dict []byte) (Reader, error) {
 		}
 		embDescriptor = embDescriptor + string(sector)
 	}
-	fmt.Println(embDescriptor)
 
 	readerFunc, err := newReaderFunc(embDescriptor, header)
 	if err != nil {
@@ -96,7 +94,6 @@ func NewExtractor(r io.Reader) (VMDK, error) {
 		}
 		embDescriptor = embDescriptor + string(sector)
 	}
-	fmt.Println(embDescriptor)
 
 	extent, err := newExtent(embDescriptor, header)
 	if err != nil {

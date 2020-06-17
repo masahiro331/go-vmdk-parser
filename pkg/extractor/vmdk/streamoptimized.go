@@ -28,6 +28,7 @@ type streamOptimizedExtentReader struct {
 	err           error
 	header        Header
 	buffer        *bytes.Buffer
+	secondbuffer  *bytes.Buffer
 	sectorPos     uint64
 	fileSectorPos uint64
 	mbr           *disk.MasterBootRecord
@@ -40,6 +41,7 @@ type streamOptimizedExtentReader struct {
 func NewStreamOptimizedReader(r io.Reader, dict []byte, header Header) (Reader, error) {
 	// Trim vmdk head Metadata
 	sector := make([]byte, Sector)
+
 	overHeadOffset := header.OverHead - header.DescriptorOffset - header.DescriptorSize
 	for i := uint64(0); i < (overHeadOffset); i++ {
 		if _, err := r.Read(sector); err != nil {
@@ -49,9 +51,10 @@ func NewStreamOptimizedReader(r io.Reader, dict []byte, header Header) (Reader, 
 
 	// TODO: Read Master record
 	reader := streamOptimizedExtentReader{
-		buffer: bytes.NewBuffer([]byte{}),
-		header: header,
-		r:      r,
+		buffer:       bytes.NewBuffer([]byte{}),
+		secondbuffer: bytes.NewBuffer([]byte{}),
+		header:       header,
+		r:            r,
 	}
 
 	_, err := reader.readGrainData()
@@ -65,41 +68,138 @@ func NewStreamOptimizedReader(r io.Reader, dict []byte, header Header) (Reader, 
 }
 
 func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
+	// if s.partition != nil {
+	// 	return 0, io.EOF
+	// }
+
 	if len(p) == 0 {
 		// TODO
 	}
 
 	for {
-		if s.buffer.Len() < len(p) {
-			if s.fileSectorPos != s.sectorPos {
-				s.buffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
-				s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
-				continue
-			}
-
+		// fmt.Printf("filesectorpos: %d\n", s.fileSectorPos)
+		// fmt.Printf("sectorpos    : %d\n", s.sectorPos)
+		// fmt.Printf("buffer len   : %d\n", s.buffer.Len())
+		if s.buffer.Len() == 0 {
+			s.fileSectorPos = s.sectorPos + CLUSTER_SIZE
 			_, err := s.readGrainData()
-			if s.partition != nil && s.sectorPos == uint64(s.partition.StartSector+s.partition.Size) {
-				return 0, io.EOF
-			}
-			// s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
-
 			if err != nil {
-				if err == io.EOF {
-					s.err = err
+				if err != io.EOF {
+					log.Fatalf("unknown err %s", err)
 				}
 				return 0, err
 			}
 
-		} else {
-			n, err := s.buffer.Read(p)
-			if err != nil {
-				log.Println(err)
+			if s.partition != nil && s.sectorPos == uint64(s.partition.StartSector+s.partition.Size) {
+				return 0, io.EOF
 			}
-			if s.buffer.Len() == 0 && s.err == io.EOF {
-				return 0, s.err
-			}
-			return n, err
+
+			continue
 		}
+		if s.fileSectorPos == s.sectorPos {
+			i, err := s.buffer.Read(p)
+			if err != nil {
+				if err != io.EOF {
+					log.Fatalf("unknown err %s", err)
+				}
+				return i, err
+			}
+			return i, err
+		} else {
+			if s.secondbuffer.Len() == 0 {
+				s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
+				s.secondbuffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
+			}
+
+			i, err := s.secondbuffer.Read(p)
+			if err != nil {
+				if err != io.EOF {
+					log.Fatalf("unknown err %s", err)
+				}
+				return i, err
+			}
+			return i, err
+		}
+
+		// i, err := s.buffer.Read(p)
+		// fmt.Printf("SectorPos: %d\n", s.sectorPos)
+		// fmt.Printf("fileSectorPos: %d\n", s.fileSectorPos)
+		// fmt.Printf("startSector: %d\n", s.partition.StartSector)
+		// if err != nil {
+		// 	return i, err
+		// }
+		// return i, nil
+
+		// if s.buffer.Len()+s.secondbuffer.Len() < len(p) {
+		// 	if s.buffer.Len() == 0 {
+		// 		_, err := s.readGrainData()
+		// 		if s.partition != nil && s.sectorPos == uint64(s.partition.StartSector+s.partition.Size) {
+		// 			return 0, io.EOF
+		// 		}
+		// 		// s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
+		// 		if err != nil {
+		// 			if err == io.EOF {
+		// 				s.err = err
+		// 			}
+		// 			return 0, err
+		// 		}
+		// 	}
+		// 	if s.fileSectorPos != s.sectorPos { // + CLUSTER_SIZE {
+		// 		s.secondbuffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
+		// 		s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
+		// 	} else {
+		// 		s.buffer.WriteTo(s.secondbuffer)
+		// 		// Test code
+		// 		if s.buffer.Len() != 0 {
+		// 			panic("buffer is not empty")
+		// 		}
+		// 	}
+		// } else {
+		// 	if s.secondbuffer.Len() != 0 {
+		// 		n, err := s.secondbuffer.Read(p)
+		// 		if err != nil {
+		// 			log.Println(err)
+		// 		}
+		// 		return n, err
+		// 	} else {
+		// 		n, err := s.buffer.Read(p)
+		// 		if err != nil {
+		// 			log.Println(err)
+		// 		}
+		// 		if s.buffer.Len() == 0 && s.err == io.EOF {
+		// 			return 0, s.err
+		// 		}
+		// 		return n, err
+		// 	}
+		// }
+
+		// if s.buffer.Len() < len(p) {
+		// 	if s.fileSectorPos != s.sectorPos+CLUSTER_SIZE {
+		// 		s.buffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
+		// 		s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
+		// 	} else {
+		// 		_, err := s.readGrainData()
+		// 		if s.partition != nil && s.sectorPos == uint64(s.partition.StartSector+s.partition.Size) {
+		// 			return 0, io.EOF
+		// 		}
+		// 		s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
+		// 		if err != nil {
+		// 			if err == io.EOF {
+		// 				s.err = err
+		// 			}
+		// 			return 0, err
+		// 		}
+		// 	}
+		// } else {
+		// 	n, err := s.buffer.Read(p)
+		// 	if err != nil {
+		// 		log.Println(err)
+		// 	}
+		// 	if s.buffer.Len() == 0 && s.err == io.EOF {
+		// 		return 0, s.err
+		// 	}
+		// 	return n, err
+		// }
 	}
 
 	// bufが無くなったら補充する機能
@@ -123,6 +223,8 @@ func (s *streamOptimizedExtentReader) Next() (*disk.Partition, error) {
 		}
 	}
 	if uint64(s.partition.StartSector) == s.sectorPos {
+		// s.fileSectorPos = 0
+		s.fileSectorPos = s.sectorPos
 		return s.partition, nil
 	}
 
@@ -135,7 +237,8 @@ func (s *streamOptimizedExtentReader) Next() (*disk.Partition, error) {
 				return nil, xerrors.Errorf("failed to next error: %w", err)
 			}
 			if startSector == s.sectorPos {
-				// s.fileSectorPos = s.sectorPos + CLUSTER_SIZE
+				// s.fileSectorPos = 0
+				s.fileSectorPos = s.sectorPos
 				return s.partition, nil
 			}
 		}
@@ -152,10 +255,7 @@ func (s *streamOptimizedExtentReader) readGrainData() (uint64, error) {
 		m := parseMarker(sector)
 		switch m.Type {
 		case MARKER_GRAIN:
-			// s.fileSectorPos = s.sectorPos + CLUSTER_SIZE
 			s.sectorPos = m.Value
-
-			fmt.Println(s.sectorPos)
 			buf := new(bytes.Buffer)
 			if m.Size < 500 {
 				buf.Write(m.Data[:m.Size])
@@ -237,10 +337,8 @@ func (s *StreamOptimizedExtent) ExtractFromFile(r io.Reader, filenames []string)
 		case MARKER_GRAIN:
 			buf := new(bytes.Buffer)
 			if m.Size < 500 {
-				// buf = append(buf, m.Data[:m.Size]...)
 				buf.Write(m.Data[:m.Size])
 			} else {
-				// buf = append(buf, m.Data...)
 				buf.Write(m.Data)
 				limit := uint64(math.Ceil(float64(m.Size-500) / float64(Sector)))
 				for i := uint64(0); i < limit; i++ {
