@@ -76,6 +76,23 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 	}
 
 	for {
+
+		if s.partition != nil && s.fileSectorPos == uint64(s.partition.StartSector+s.partition.Size) {
+			if s.secondbuffer.Len() == 0 {
+				return 0, io.EOF
+			}
+
+			// ref :117
+			i, err := s.secondbuffer.Read(p)
+			if err != nil {
+				if err != io.EOF {
+					log.Fatalf("unknown err %s", err)
+				}
+				return i, err
+			}
+			return i, err
+		}
+
 		if s.buffer.Len() == 0 {
 			s.fileSectorPos = s.sectorPos + CLUSTER_SIZE
 			_, err := s.readGrainData()
@@ -86,12 +103,9 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 				return 0, err
 			}
 
-			if s.partition != nil && s.sectorPos == uint64(s.partition.StartSector+s.partition.Size) {
-				return 0, io.EOF
-			}
-
 			continue
 		}
+
 		if s.fileSectorPos == s.sectorPos {
 			i, err := s.buffer.Read(p)
 			if err != nil {
