@@ -7,8 +7,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/masahiro331/go-vmdk-parser/pkg/extractor/vmdk"
+	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
 )
+
+const BUFFER_SIZE = 512 * 128
 
 func main() {
 	if len(os.Args) != 2 {
@@ -24,24 +26,34 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	for i := 0; i < 4; i++ {
 		p, err := reader.Next()
 		if err != nil {
 			log.Fatal(err)
 		}
-
-		f, _ := os.Create(fmt.Sprintf("%d.img", i))
-		defer f.Close()
 		fmt.Println(p)
 
-		for {
-			b := make([]byte, 65536)
-			_, err := reader.Read(b)
-			if err != nil {
-				break
-			}
+		fileName := fmt.Sprintf("%d.img", i)
+		if !Exists(fileName) {
+			f, _ := os.Create(fileName)
+			defer f.Close()
 
-			io.Copy(f, bytes.NewReader(b))
+			for {
+				b := make([]byte, BUFFER_SIZE)
+				_, err := reader.Read(b)
+				if err != nil {
+					break
+				}
+				io.Copy(f, bytes.NewReader(b))
+			}
 		}
+
 	}
+
+}
+
+func Exists(name string) bool {
+	_, err := os.Stat(name)
+	return !os.IsNotExist(err)
 }
