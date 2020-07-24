@@ -67,16 +67,11 @@ func NewStreamOptimizedReader(r io.Reader, dict []byte, header Header) (Reader, 
 }
 
 func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
-	// if s.partition != nil {
-	// 	return 0, io.EOF
-	// }
-
 	if len(p) == 0 {
-		// TODO
+		return 0, xerrors.New("invalid byte size")
 	}
 
 	for {
-
 		if s.partition != nil && s.fileSectorPos == uint64(s.partition.StartSector+s.partition.Size) {
 			if s.secondbuffer.Len() == 0 {
 				return 0, io.EOF
@@ -106,7 +101,7 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 			continue
 		}
 
-		if s.fileSectorPos == s.sectorPos {
+		if s.fileSectorPos == s.sectorPos && s.secondbuffer.Len() == 0 {
 			i, err := s.buffer.Read(p)
 			if err != nil {
 				if err != io.EOF {
@@ -171,6 +166,7 @@ func (s *streamOptimizedExtentReader) Next() (*disk.Partition, error) {
 	}
 }
 
+// TODO: return read size
 func (s *streamOptimizedExtentReader) readGrainData() (uint64, error) {
 	sector := make([]byte, Sector)
 	for {
