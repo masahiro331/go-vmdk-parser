@@ -21,7 +21,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	reader, err := vmdk.NewReader(file, []byte{})
 	if err != nil {
 		log.Fatal(err)
@@ -48,9 +47,50 @@ func main() {
 				io.Copy(f, bytes.NewReader(b))
 			}
 		}
-
 	}
 
+	// treader, err := vagrantcloud.NewBoxReader(file)
+	// if err != nil {
+	// 	log.Fatal(treader)
+	// }
+	// for {
+	// 	header, err := treader.Next()
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+
+	// 	if !strings.HasSuffix(header.Name, ".vmdk") {
+	// 		continue
+	// 	}
+
+	// 	reader, err := vmdk.NewReader(treader, []byte{})
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+
+	// 	for i := 0; i < 4; i++ {
+	// 		p, err := reader.Next()
+	// 		if err != nil {
+	// 			log.Fatal(err)
+	// 		}
+	// 		fmt.Println(p)
+
+	// 		fileName := fmt.Sprintf("%d.img", i)
+	// 		if !Exists(fileName) {
+	// 			f, _ := os.Create(fileName)
+	// 			defer f.Close()
+
+	// 			for {
+	// 				b := make([]byte, BUFFER_SIZE)
+	// 				_, err := reader.Read(b)
+	// 				if err != nil {
+	// 					break
+	// 				}
+	// 				io.Copy(f, bytes.NewReader(b))
+	// 			}
+	// 		}
+	// 	}
+	// }
 }
 
 func Exists(name string) bool {
