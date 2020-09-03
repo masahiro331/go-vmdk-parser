@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/masahiro331/gexto"
+	"github.com/masahiro331/go-vmdk-parser/pkg/analyzer"
 	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
 )
 
@@ -17,21 +19,23 @@ func main() {
 		log.Fatal("invalid arguments")
 	}
 
-	file, err := os.Open(os.Args[1])
+	f, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
-	reader, err := vmdk.NewReader(file, []byte{})
+	reader, err := vmdk.NewReader(f, []byte{})
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	for i := 0; i < 4; i++ {
-		p, err := reader.Next()
+		_, err := reader.Next()
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
 			log.Fatal(err)
 		}
-		fmt.Println(p)
 
 		fileName := fmt.Sprintf("%d.img", i)
 		if !Exists(fileName) {
@@ -49,48 +53,15 @@ func main() {
 		}
 	}
 
-	// treader, err := vagrantcloud.NewBoxReader(file)
-	// if err != nil {
-	// 	log.Fatal(treader)
-	// }
-	// for {
-	// 	header, err := treader.Next()
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
+	fs, err := gexto.NewFileSystem("./1.img")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// 	if !strings.HasSuffix(header.Name, ".vmdk") {
-	// 		continue
-	// 	}
-
-	// 	reader, err := vmdk.NewReader(treader, []byte{})
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-
-	// 	for i := 0; i < 4; i++ {
-	// 		p, err := reader.Next()
-	// 		if err != nil {
-	// 			log.Fatal(err)
-	// 		}
-	// 		fmt.Println(p)
-
-	// 		fileName := fmt.Sprintf("%d.img", i)
-	// 		if !Exists(fileName) {
-	// 			f, _ := os.Create(fileName)
-	// 			defer f.Close()
-
-	// 			for {
-	// 				b := make([]byte, BUFFER_SIZE)
-	// 				_, err := reader.Read(b)
-	// 				if err != nil {
-	// 					break
-	// 				}
-	// 				io.Copy(f, bytes.NewReader(b))
-	// 			}
-	// 		}
-	// 	}
-	// }
+	_, err = analyzer.AnalyzeFileSystem(fs)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func Exists(name string) bool {
