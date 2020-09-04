@@ -35,7 +35,11 @@ func AnalyzeFileSystem(fs gexto.FileSystem) (*analyzer.AnalysisResult, error) {
 	result := new(analyzer.AnalysisResult)
 	for _, fn := range files {
 		ar, err := analyzer.AnalyzeFile(fn, nil, func() ([]byte, error) {
-			file, _ := fs.Open(fn)
+			file, err := fs.Open(fn)
+			if err != nil {
+				return nil, err
+			}
+
 			return ioutil.ReadAll(file)
 		})
 		if err != nil {
