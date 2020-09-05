@@ -58,10 +58,22 @@ func main() {
 		log.Fatal(err)
 	}
 
-	_, err = analyzer.AnalyzeFileSystem(fs)
+	ar, err := analyzer.AnalyzeFileSystem(fs)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	displayStr := ""
+	for _, pkgInfo := range ar.PackageInfos {
+		for _, pkg := range pkgInfo.Packages {
+			displayStr += fmt.Sprintf("name: %s, version: %s, release: %s\n", pkg.Name, pkg.Version, pkg.Release)
+		}
+	}
+	fmt.Printf(`OS family: %s
+OS name: %s
+Packages:
+%s`, ar.OS.Family, ar.OS.Name, displayStr)
+
 }
 
 func Exists(name string) bool {
