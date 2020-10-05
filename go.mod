@@ -6,7 +6,7 @@ require (
 	github.com/aquasecurity/fanal v0.0.0-20200820074632-6de62ef86882
 	github.com/aquasecurity/go-dep-parser v0.0.0-20190819075924-ea223f0ef24b
 	github.com/aquasecurity/trivy v0.11.0
-	github.com/aquasecurity/trivy-db v0.0.0-20200826140828-6da6467703aa
+	github.com/aquasecurity/trivy-db v0.0.0-20201005071358-a1d1e10e4b42
 	github.com/jochasinga/requests v0.0.0-20160909035013-af9bbdb4ab2c
 	github.com/lunixbochs/struc v0.0.0-20200521075829-a4cb8d33dbbe
 	github.com/masahiro331/gexto v0.0.0-20200519123527-71f43e51ce02
