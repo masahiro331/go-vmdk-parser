@@ -7,6 +7,13 @@ import (
 	"log"
 	"os"
 
+	"github.com/aquasecurity/trivy-db/pkg/db"
+	l "github.com/aquasecurity/trivy/pkg/log"
+	"github.com/aquasecurity/trivy/pkg/types"
+	"github.com/aquasecurity/trivy/pkg/utils"
+	"github.com/masahiro331/gexto"
+	"github.com/masahiro331/go-vmdk-parser/pkg/analyzer"
+	"github.com/masahiro331/go-vmdk-parser/pkg/detector"
 	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
 )
 
@@ -17,22 +24,23 @@ func main() {
 		log.Fatal("invalid arguments")
 	}
 
-	file, err := os.Open(os.Args[1])
+	f, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	reader, err := vmdk.NewReader(file, []byte{})
+	reader, err := vmdk.NewReader(f, []byte{})
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	for i := 0; i < 4; i++ {
-		p, err := reader.Next()
+		_, err := reader.Next()
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
 			log.Fatal(err)
 		}
-		fmt.Println(p)
 
 		fileName := fmt.Sprintf("%d.img", i)
 		if !Exists(fileName) {
@@ -48,9 +56,34 @@ func main() {
 				io.Copy(f, bytes.NewReader(b))
 			}
 		}
-
 	}
 
+	fs, err := gexto.NewFileSystem("./1.img")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ar, err := analyzer.AnalyzeFileSystem(fs)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dir := utils.DefaultCacheDir()
+	if err := db.Init(dir); err != nil {
+		log.Fatalf("%+v\n", err)
+	}
+
+	if err = l.InitLogger(true, false); err != nil {
+		log.Fatal(err)
+	}
+
+	var dvs []types.DetectedVulnerability
+	for _, pkgInfo := range ar.PackageInfos {
+		vulns, _, _ := detector.DetectOSVulnerability("generic/alpine", ar.OS.Family, ar.OS.Name, nil, pkgInfo.Packages)
+		dvs = append(dvs, vulns...)
+	}
+
+	fmt.Printf("%+v\n", dvs)
 }
 
 func Exists(name string) bool {
