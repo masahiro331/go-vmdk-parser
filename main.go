@@ -1,23 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 
-	"github.com/aquasecurity/trivy-db/pkg/db"
-	l "github.com/aquasecurity/trivy/pkg/log"
-	"github.com/aquasecurity/trivy/pkg/types"
-	"github.com/aquasecurity/trivy/pkg/utils"
-	"github.com/masahiro331/gexto"
-	"github.com/masahiro331/go-vmdk-parser/pkg/analyzer"
-	"github.com/masahiro331/go-vmdk-parser/pkg/detector"
+	ext4 "github.com/masahiro331/go-ext4-filesystem/pkg"
 	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
 )
-
-const BUFFER_SIZE = 512 * 128
 
 func main() {
 	if len(os.Args) != 2 {
@@ -28,13 +20,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	reader, err := vmdk.NewReader(f, []byte{})
+	reader, err := vmdk.NewReader(f)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	for i := 0; i < 4; i++ {
-		_, err := reader.Next()
+		partition, err := reader.Next()
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -42,51 +34,22 @@ func main() {
 			log.Fatal(err)
 		}
 
-		fileName := fmt.Sprintf("%d.img", i)
-		if !Exists(fileName) {
-			f, _ := os.Create(fileName)
-			defer f.Close()
-
+		if partition.Boot != true {
+			ext4Reader, err := ext4.NewReader(reader)
+			if err != nil {
+				log.Fatal(err)
+			}
 			for {
-				b := make([]byte, BUFFER_SIZE)
-				_, err := reader.Read(b)
+				filename, err := ext4Reader.Next()
 				if err != nil {
-					break
+					log.Fatalf("%+v", err)
 				}
-				io.Copy(f, bytes.NewReader(b))
+				if filename == "installed" {
+					buf, _ := ioutil.ReadAll(ext4Reader)
+					fmt.Println(string(buf))
+					return
+				}
 			}
 		}
 	}
-
-	fs, err := gexto.NewFileSystem("./1.img")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	ar, err := analyzer.AnalyzeFileSystem(fs)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	dir := utils.DefaultCacheDir()
-	if err := db.Init(dir); err != nil {
-		log.Fatalf("%+v\n", err)
-	}
-
-	if err = l.InitLogger(true, false); err != nil {
-		log.Fatal(err)
-	}
-
-	var dvs []types.DetectedVulnerability
-	for _, pkgInfo := range ar.PackageInfos {
-		vulns, _, _ := detector.DetectOSVulnerability("generic/alpine", ar.OS.Family, ar.OS.Name, nil, pkgInfo.Packages)
-		dvs = append(dvs, vulns...)
-	}
-
-	fmt.Printf("%+v\n", dvs)
-}
-
-func Exists(name string) bool {
-	_, err := os.Stat(name)
-	return !os.IsNotExist(err)
 }
