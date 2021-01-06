@@ -37,7 +37,7 @@ type streamOptimizedExtentReader struct {
 }
 
 // Read '0x100000' bytes in NewReader for get master record
-func NewStreamOptimizedReader(r io.Reader, dict []byte, header Header) (Reader, error) {
+func NewStreamOptimizedReader(r io.Reader, header Header) (Reader, error) {
 	// Trim vmdk head Metadata
 	sector := make([]byte, Sector)
 

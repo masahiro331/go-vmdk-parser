@@ -38,7 +38,7 @@ type Reader interface {
 	Next() (*disk.Partition, error)
 }
 
-func NewReader(r io.Reader, dict []byte) (Reader, error) {
+func NewReader(r io.Reader) (Reader, error) {
 	var header Header
 	if err := binary.Read(r, binary.LittleEndian, &header); err != nil {
 		return nil, xerrors.Errorf("failed to read binary error: %w", err)
@@ -63,10 +63,10 @@ func NewReader(r io.Reader, dict []byte) (Reader, error) {
 		return nil, xerrors.Errorf("failed to new vmdk reader: %w", err)
 	}
 
-	return readerFunc(r, dict, header)
+	return readerFunc(r, header)
 }
 
-func newReaderFunc(s string, header Header) (func(r io.Reader, dict []byte, header Header) (Reader, error), error) {
+func newReaderFunc(s string, header Header) (func(r io.Reader, header Header) (Reader, error), error) {
 	if strings.Contains(s, `createType="streamOptimized"`) {
 		return NewStreamOptimizedReader, nil
 	} else {
