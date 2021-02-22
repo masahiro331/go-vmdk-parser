@@ -50,8 +50,8 @@ func NewStreamOptimizedReader(r io.Reader, header Header) (Reader, error) {
 
 	// TODO: Read Master record
 	reader := streamOptimizedExtentReader{
-		buffer:       bytes.NewBuffer([]byte{}),
-		secondbuffer: bytes.NewBuffer([]byte{}),
+		buffer:       &bytes.Buffer{},
+		secondbuffer: &bytes.Buffer{},
 		header:       header,
 		r:            r,
 	}
