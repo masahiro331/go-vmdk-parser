@@ -3,11 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 
-	ext4 "github.com/masahiro331/go-ext4-filesystem/pkg"
 	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
 )
 
@@ -25,7 +23,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for i := 0; i < 4; i++ {
+	for {
 		partition, err := reader.Next()
 		if err != nil {
 			if err == io.EOF {
@@ -34,22 +32,17 @@ func main() {
 			log.Fatal(err)
 		}
 
-		if partition.Boot != true {
-			ext4Reader, err := ext4.NewReader(reader)
+		if partition.Bootable() != true {
+			f, err := os.Create(partition.Name() + ".img")
 			if err != nil {
 				log.Fatal(err)
 			}
-			for {
-				filename, err := ext4Reader.Next()
-				if err != nil {
-					log.Fatalf("%+v", err)
-				}
-				if filename == "installed" {
-					buf, _ := ioutil.ReadAll(ext4Reader)
-					fmt.Println(string(buf))
-					return
-				}
+
+			i, err := io.Copy(f, reader)
+			if err != nil {
+				log.Fatal(err)
 			}
+			fmt.Println("file size:", i)
 		}
 	}
 }
