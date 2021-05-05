@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/masahiro331/go-vmdk-parser/pkg/disk"
+	"github.com/masahiro331/go-vmdk-parser/pkg/disk/types"
 	"golang.org/x/xerrors"
 )
 
@@ -35,7 +35,7 @@ type Header struct {
 
 type Reader interface {
 	io.ReadCloser
-	Next() (*disk.Partition, error)
+	Next() (types.Partition, error)
 }
 
 func NewReader(r io.Reader) (Reader, error) {

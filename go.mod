@@ -1,8 +1,10 @@
 module github.com/masahiro331/go-vmdk-parser
 
-go 1.15
+go 1.16
 
 require (
-	github.com/masahiro331/go-ext4-filesystem v0.0.0-20210106104442-3e6a14ba5967
+	github.com/jochasinga/gtime v0.0.0-20160422115147-74381b863c28 // indirect
+	github.com/jochasinga/relay v0.0.0-20161125200856-6a088273228f // indirect
+	github.com/jochasinga/requests v0.0.0-20160909035013-af9bbdb4ab2c
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1
 )

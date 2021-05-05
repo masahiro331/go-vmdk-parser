@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"github.com/masahiro331/go-vmdk-parser/pkg/disk"
+	"github.com/masahiro331/go-vmdk-parser/pkg/disk/types"
 	"golang.org/x/xerrors"
 )
 
@@ -30,10 +31,9 @@ type streamOptimizedExtentReader struct {
 	secondbuffer  *bytes.Buffer
 	sectorPos     uint64
 	fileSectorPos uint64
-	mbr           *disk.MasterBootRecord
-	partition     *disk.Partition
-
-	// sectorPos uint64
+	writeSize     uint64
+	diskDriver    disk.Driver
+	partition     types.Partition
 }
 
 // Read '0x100000' bytes in NewReader for get master record
@@ -57,9 +57,10 @@ func NewStreamOptimizedReader(r io.Reader, header Header) (Reader, error) {
 	}
 
 	_, err := reader.readGrainData()
-	reader.mbr, err = disk.NewMasterBootRecord(reader.buffer)
+
+	reader.diskDriver, err = disk.NewDriver(reader.buffer)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to parse disk error: %w", err)
+		return nil, xerrors.Errorf("failed to new driver: %w", err)
 	}
 	reader.buffer.Reset()
 
@@ -70,15 +71,16 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, xerrors.New("invalid byte size")
 	}
-
 	for {
-		if s.partition != nil && s.fileSectorPos == uint64(s.partition.StartSector+s.partition.Size) {
+		if s.partition != nil &&
+			s.fileSectorPos == s.partition.GetStartSector()+s.partition.GetSize() {
+
 			if s.secondbuffer.Len() == 0 {
 				return 0, io.EOF
 			}
 
 			// ref :117
-			i, err := s.secondbuffer.Read(p)
+			i, err := s.writeReaderFromSecondBuffer(p)
 			if err != nil {
 				if err != io.EOF {
 					log.Fatalf("unknown err %s", err)
@@ -102,7 +104,7 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 		}
 
 		if s.fileSectorPos == s.sectorPos && s.secondbuffer.Len() == 0 {
-			i, err := s.buffer.Read(p)
+			i, err := s.writeReaderFromBuffer(p)
 			if err != nil {
 				if err != io.EOF {
 					log.Fatalf("unknown err %s", err)
@@ -116,7 +118,7 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 				s.secondbuffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
 			}
 
-			i, err := s.secondbuffer.Read(p)
+			i, err := s.writeReaderFromSecondBuffer(p)
 			if err != nil {
 				if err != io.EOF {
 					log.Fatalf("unknown err %s", err)
@@ -126,30 +128,56 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 			return i, err
 		}
 	}
-
 }
 
-func (s *streamOptimizedExtentReader) Next() (*disk.Partition, error) {
+func (s *streamOptimizedExtentReader) writeReaderFromBuffer(p []byte) (int, error) {
+	if (s.writeSize + uint64(len(p))) > (s.partition.GetSize() * SECOTR_SIZE) {
+		ws := (s.partition.GetSize() * SECOTR_SIZE) - s.writeSize
+		s.writeSize += ws
+		i, _ := s.buffer.Read(p[:ws])
+		return i, io.EOF
+	}
+
+	s.writeSize += uint64(len(p))
+	return s.buffer.Read(p)
+}
+func (s *streamOptimizedExtentReader) writeReaderFromSecondBuffer(p []byte) (int, error) {
+	if (s.writeSize + uint64(len(p))) > (s.partition.GetSize() * SECOTR_SIZE) {
+		ws := (s.partition.GetSize() * SECOTR_SIZE) - s.writeSize
+		s.writeSize += ws
+		i, _ := s.buffer.Read(p[:ws])
+		return i, io.EOF
+	}
+
+	s.writeSize += uint64(len(p))
+	return s.secondbuffer.Read(p)
+}
+
+func (s *streamOptimizedExtentReader) Next() (types.Partition, error) {
+	s.buffer.Reset()
+	s.writeSize = 0
+	partitions := s.diskDriver.GetPartitions()
 	if s.partition == nil {
-		s.partition = &s.mbr.Partitions[0]
+		p := s.diskDriver.GetPartitions()[0]
+		s.partition = p
 	} else {
-		for _, p := range s.mbr.Partitions {
-			if p.StartSector > s.partition.StartSector {
-				s.partition = &p
+		for _, p := range partitions {
+			if p.GetStartSector() > s.partition.GetStartSector() {
+				s.partition = p
 				break
-			} else if p.StartSector == 0 {
+			} else if p.GetStartSector() == 0 ||
+				partitions[len(partitions)-1].GetStartSector() == p.GetStartSector() {
 				return nil, io.EOF
 			}
 		}
 	}
-	if uint64(s.partition.StartSector) == s.sectorPos {
-		// s.fileSectorPos = 0
+	if s.partition.GetStartSector() == s.sectorPos {
 		s.fileSectorPos = s.sectorPos
 		return s.partition, nil
 	}
 
 	var err error
-	startSector := uint64(s.partition.StartSector)
+	startSector := s.partition.GetStartSector()
 	for {
 		if startSector > s.sectorPos {
 			s.sectorPos, err = s.readGrainData()
@@ -157,7 +185,6 @@ func (s *streamOptimizedExtentReader) Next() (*disk.Partition, error) {
 				return nil, xerrors.Errorf("failed to next error: %w", err)
 			}
 			if startSector == s.sectorPos {
-				// s.fileSectorPos = 0
 				s.fileSectorPos = s.sectorPos
 				return s.partition, nil
 			}
