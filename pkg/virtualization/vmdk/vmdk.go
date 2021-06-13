@@ -69,6 +69,8 @@ func NewReader(r io.Reader) (Reader, error) {
 func newReaderFunc(s string, header Header) (func(r io.Reader, header Header) (Reader, error), error) {
 	if strings.Contains(s, `createType="streamOptimized"`) {
 		return NewStreamOptimizedReader, nil
+	} else if strings.Contains(s, `createType="monolithicSparse"`) {
+		return nil, xerrors.New("Unsupported create Type monolithcSparse")
 	} else {
 		return nil, xerrors.New("Unsupported createType")
 	}

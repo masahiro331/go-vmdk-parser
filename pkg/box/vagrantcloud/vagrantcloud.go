@@ -56,7 +56,7 @@ func GetBox(boxName, version string) (io.ReadCloser, error) {
 	}
 
 	for _, v := range box.Versions {
-		if v.Version == version {
+		if v.Version == version || version == "" {
 			for _, provider := range v.Providers {
 				if provider.Name == Virtualbox {
 					resp, err := requests.Get(provider.URL, addMimeType)
@@ -75,9 +75,8 @@ func GetBox(boxName, version string) (io.ReadCloser, error) {
 func NewBoxReader(reader io.Reader) (*tar.Reader, error) {
 	greader, err := gzip.NewReader(reader)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to NewGzipReader: %w", err)
+		return tar.NewReader(greader), nil
 	}
-	defer greader.Close()
 
 	treader := tar.NewReader(greader)
 	if err != nil {

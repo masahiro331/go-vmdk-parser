@@ -56,7 +56,6 @@ type MasterBootRecord struct {
 	Unknown                [2]byte
 	Partitions             [4]Partition
 	Signature              uint16
-	count                  int
 }
 
 type Partition struct {
@@ -67,21 +66,31 @@ type Partition struct {
 
 	StartSector uint32
 	Size        uint32
+
+	index int
 }
 
 func (m *MasterBootRecord) GetPartitions() []types.Partition {
 	var ps []types.Partition
 	for _, p := range m.Partitions {
-		var i types.Partition
-		i = p
+		var i types.Partition = p
 		ps = append(ps, i)
 	}
 	return ps
 }
 
+func (p Partition) Index() int {
+	return p.index
+}
+
 func (p Partition) Name() string {
-	// TODO: return number of partition index
-	return strconv.Itoa(int(p.StartSector))
+	// TODO: add extension with type
+
+	return strconv.Itoa(int(p.index))
+}
+
+func (p Partition) GetType() []byte {
+	return []byte{p.Type}
 }
 
 func (p Partition) GetStartSector() uint64 {
@@ -100,7 +109,7 @@ func NewMasterBootRecord(reader io.Reader) (*MasterBootRecord, error) {
 	buf := make([]byte, Sector)
 	size, err := reader.Read(buf)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to read mbr error: %w")
+		return nil, xerrors.Errorf("failed to read mbr error: %w", err)
 	}
 	if size != Sector {
 		return nil, xerrors.New("binary size error")
@@ -122,9 +131,25 @@ func NewMasterBootRecord(reader io.Reader) (*MasterBootRecord, error) {
 	}
 
 	for i := 0; i < len(mbr.Partitions); i++ {
-		if err := binary.Read(r, binary.LittleEndian, &mbr.Partitions[i]); err != nil {
-			return nil, xerrors.Errorf("failed to parse partition[%d]: %w", i, err)
+		if err := binary.Read(r, binary.LittleEndian, &mbr.Partitions[i].Boot); err != nil {
+			return nil, xerrors.Errorf("failed to parse partition[%d] Boot: %w", i, err)
 		}
+		if err := binary.Read(r, binary.LittleEndian, &mbr.Partitions[i].StartCHS); err != nil {
+			return nil, xerrors.Errorf("failed to parse partition[%d] StartCHS: %w", i, err)
+		}
+		if err := binary.Read(r, binary.LittleEndian, &mbr.Partitions[i].Type); err != nil {
+			return nil, xerrors.Errorf("failed to parse partition[%d] Type: %w", i, err)
+		}
+		if err := binary.Read(r, binary.LittleEndian, &mbr.Partitions[i].EndCHS); err != nil {
+			return nil, xerrors.Errorf("failed to parse partition[%d] EndCHS: %w", i, err)
+		}
+		if err := binary.Read(r, binary.LittleEndian, &mbr.Partitions[i].StartSector); err != nil {
+			return nil, xerrors.Errorf("failed to parse partition[%d] StartSector: %w", i, err)
+		}
+		if err := binary.Read(r, binary.LittleEndian, &mbr.Partitions[i].Size); err != nil {
+			return nil, xerrors.Errorf("failed to parse partition[%d] Size: %w", i, err)
+		}
+		mbr.Partitions[i].index = i
 	}
 
 	if err := binary.Read(r, binary.LittleEndian, &mbr.Signature); err != nil {
@@ -135,4 +160,8 @@ func NewMasterBootRecord(reader io.Reader) (*MasterBootRecord, error) {
 	}
 
 	return &mbr, nil
+}
+
+func (p Partition) IsSupported() bool {
+	return true
 }

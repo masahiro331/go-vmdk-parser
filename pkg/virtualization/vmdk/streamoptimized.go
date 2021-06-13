@@ -18,14 +18,9 @@ const (
 	SECOTR_SIZE  = 512
 )
 
-type StreamOptimizedExtent struct {
-	header Header
-}
-
 type streamOptimizedExtentReader struct {
 	r io.Reader
 
-	err           error
 	header        Header
 	buffer        *bytes.Buffer
 	secondbuffer  *bytes.Buffer
@@ -115,7 +110,10 @@ func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
 		} else {
 			if s.secondbuffer.Len() == 0 {
 				s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
-				s.secondbuffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
+				_, err := s.secondbuffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
+				if err != nil {
+					return 0, xerrors.Errorf("failed to write second buffer: %w", err)
+				}
 			}
 
 			i, err := s.writeReaderFromSecondBuffer(p)
@@ -154,7 +152,8 @@ func (s *streamOptimizedExtentReader) writeReaderFromSecondBuffer(p []byte) (int
 }
 
 func (s *streamOptimizedExtentReader) Next() (types.Partition, error) {
-	s.buffer.Reset()
+	s.secondbuffer.Reset()
+	// s.buffer.Reset()
 	s.writeSize = 0
 	partitions := s.diskDriver.GetPartitions()
 	if s.partition == nil {
@@ -174,20 +173,24 @@ func (s *streamOptimizedExtentReader) Next() (types.Partition, error) {
 	if s.partition.GetStartSector() == s.sectorPos {
 		s.fileSectorPos = s.sectorPos
 		return s.partition, nil
+	} else {
+		s.buffer.Reset()
 	}
 
 	var err error
-	startSector := s.partition.GetStartSector()
 	for {
-		if startSector > s.sectorPos {
+		if s.partition.GetStartSector() > s.sectorPos {
 			s.sectorPos, err = s.readGrainData()
 			if err != nil {
 				return nil, xerrors.Errorf("failed to next error: %w", err)
 			}
-			if startSector == s.sectorPos {
+			if s.partition.GetStartSector() <= s.sectorPos {
 				s.fileSectorPos = s.sectorPos
 				return s.partition, nil
 			}
+		} else {
+			s.fileSectorPos = s.sectorPos
+			return s.partition, nil
 		}
 		s.buffer.Reset()
 	}
@@ -206,15 +209,24 @@ func (s *streamOptimizedExtentReader) readGrainData() (uint64, error) {
 			s.sectorPos = m.Value
 			buf := new(bytes.Buffer)
 			if m.Size < 500 {
-				buf.Write(m.Data[:m.Size])
+				_, err := buf.Write(m.Data[:m.Size])
+				if err != nil {
+					return 0, xerrors.Errorf("failed to write data: %w", err)
+				}
 			} else {
-				buf.Write(m.Data)
+				_, err := buf.Write(m.Data)
+				if err != nil {
+					return 0, xerrors.Errorf("failed to write data: %w", err)
+				}
 				limit := uint64(math.Ceil(float64(m.Size-500) / float64(Sector)))
 				for i := uint64(0); i < limit; i++ {
 					if _, err := s.r.Read(sector); err != nil {
 						return 0, xerrors.Errorf("failed to read Grain Data error: %w", err)
 					}
-					buf.Write(sector)
+					_, err := buf.Write(sector)
+					if err != nil {
+						return 0, xerrors.Errorf("failed to write data: %w", err)
+					}
 				}
 			}
 			zr, err := zlib.NewReader(buf)
