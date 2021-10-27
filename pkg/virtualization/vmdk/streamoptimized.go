@@ -266,11 +266,6 @@ func (s *streamOptimizedExtentReader) readGrainData() (uint64, error) {
 	}
 }
 
-func (s *streamOptimizedExtentReader) Close() (err error) {
-	// TODO: close
-	return nil
-}
-
 /*
 ### Marker Specs ( 512 bytes )
 +--------+------+-------------+

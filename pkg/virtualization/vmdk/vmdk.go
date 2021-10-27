@@ -34,7 +34,7 @@ type Header struct {
 }
 
 type Reader interface {
-	io.ReadCloser
+	io.Reader
 	Next() (types.Partition, error)
 }
 
