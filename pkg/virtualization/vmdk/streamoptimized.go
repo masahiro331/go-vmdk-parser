@@ -52,6 +52,9 @@ func NewStreamOptimizedReader(r io.Reader, header Header) (Reader, error) {
 	}
 
 	_, err := reader.readGrainData()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read tail data: %w", err)
+	}
 
 	reader.diskDriver, err = disk.NewDriver(reader.buffer)
 	if err != nil {

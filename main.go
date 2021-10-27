@@ -10,11 +10,7 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		log.Fatal("invalid arguments")
-	}
-
-	f, err := os.Open(os.Args[1])
+	f, err := os.Open("path to your vmdk image")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -32,7 +28,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		if partition.Bootable() != true {
+		if !partition.Bootable() {
 			f, err := os.Create(partition.Name() + ".img")
 			if err != nil {
 				log.Fatal(err)
