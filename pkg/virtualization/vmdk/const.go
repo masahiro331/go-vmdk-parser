@@ -11,36 +11,30 @@ const (
 	KDMV = uint32(0x564d444b)
 )
 
-type ExtentType int
-
 const (
-	FLAT = iota
-	SPARSE
-	ZERO
-	VMFS
-	VMFSSPARSE
-	VMFSRDM
-	VMFSRAW
+	SPARSE = "SPARSE"
+	// FLAT
+	// ZERO
+	// VMFS
+	// VMFSSPARSE
+	// VMFSRDM
+	// VMFSRAW
 )
 
-type CreateType int
-
 const (
-	StreamOptimized = iota
-
-/* Not Support */
-// 	Custom
-// 	MonolithicSparse
-// 	MonolithicFlat
-// 	TwoGbMaxExtentSparse
-// 	TwoGbMaxExtentFlat
-// 	FullDevice
-// 	PartitionedDevice
-// 	VmfsPreallocated
-// 	VmfsEagerZeroedThick
-// 	VmfsThin
-// 	VmfsSparse
-// 	VmfsRDM
-// 	VmfsRDMP
-// 	VmfsRaw
+	StreamOptimized = "streamOptimized"
+	// Custom
+	// MonolithicSparse
+	// MonolithicFlat
+	// TwoGbMaxExtentSparse
+	// TwoGbMaxExtentFlat
+	// FullDevice
+	// PartitionedDevice
+	// VmfsPreallocated
+	// VmfsEagerZeroedThick
+	// VmfsThin
+	// VmfsSparse
+	// VmfsRDM
+	// VmfsRDMP
+	// VmfsRaw
 )

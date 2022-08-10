@@ -4,5 +4,7 @@ github.com/jochasinga/relay v0.0.0-20161125200856-6a088273228f h1:QWP/EhlAPeJGlv
 github.com/jochasinga/relay v0.0.0-20161125200856-6a088273228f/go.mod h1:qlpuzDguMQeZebM9+/rTCxDTXmN3oN1ctP+zcX3AejM=
 github.com/jochasinga/requests v0.0.0-20160909035013-af9bbdb4ab2c h1:cubwy2CjKIMYYk6s1BYy1ldNaR6DOoP/yiZ4K9Evk7w=
 github.com/jochasinga/requests v0.0.0-20160909035013-af9bbdb4ab2c/go.mod h1:pFstjdZQq8NNHzzPgLHX1ECbFxjbYYpc0+C+4UzRUiY=
+github.com/masahiro331/go-disk v0.0.0-20220220182714-f5f832728b22 h1:dxxThZ2TVix0KsvCLDZd8mWfMOiKJPjQz9AN7Yi/iqo=
+github.com/masahiro331/go-disk v0.0.0-20220220182714-f5f832728b22/go.mod h1:FpuMk0KxP0dQr//u24anYIDeYHACnonVXyqzgGBcauI=
 golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 h1:go1bK/D/BFZV2I8cIQd1NKEZ+0owSTG1fDTci4IqFcE=
 golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=

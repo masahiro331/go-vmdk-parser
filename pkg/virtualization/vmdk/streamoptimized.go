@@ -4,290 +4,261 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"io"
-	"log"
-	"math"
-
-	"github.com/masahiro331/go-vmdk-parser/pkg/disk"
-	"github.com/masahiro331/go-vmdk-parser/pkg/disk/types"
 	"golang.org/x/xerrors"
+	"io"
+	"unsafe"
 )
 
-const (
-	CLUSTER_SIZE = 128
-	SECOTR_SIZE  = 512
-)
-
-type streamOptimizedExtentReader struct {
-	r io.Reader
-
-	header        Header
-	buffer        *bytes.Buffer
-	secondbuffer  *bytes.Buffer
-	sectorPos     uint64
-	fileSectorPos uint64
-	writeSize     uint64
-	diskDriver    disk.Driver
-	partition     types.Partition
-}
-
-// Read '0x100000' bytes in NewReader for get master record
-func NewStreamOptimizedReader(r io.Reader, header Header) (Reader, error) {
-	// Trim vmdk head Metadata
-	sector := make([]byte, Sector)
-
-	overHeadOffset := header.OverHead - header.DescriptorOffset - header.DescriptorSize
-	for i := uint64(0); i < (overHeadOffset); i++ {
-		if _, err := r.Read(sector); err != nil {
-			return nil, xerrors.Errorf("failed to read overhead error: %w", err)
-		}
-	}
-
-	// TODO: Read Master record
-	reader := streamOptimizedExtentReader{
-		buffer:       &bytes.Buffer{},
-		secondbuffer: &bytes.Buffer{},
-		header:       header,
-		r:            r,
-	}
-
-	_, err := reader.readGrainData()
-	if err != nil {
-		return nil, xerrors.Errorf("failed to read tail data: %w", err)
-	}
-
-	reader.diskDriver, err = disk.NewDriver(reader.buffer)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to new driver: %w", err)
-	}
-	reader.buffer.Reset()
-
-	return &reader, nil
-}
-
-func (s *streamOptimizedExtentReader) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, xerrors.New("invalid byte size")
-	}
-	for {
-		if s.partition != nil &&
-			s.fileSectorPos == s.partition.GetStartSector()+s.partition.GetSize() {
-
-			if s.secondbuffer.Len() == 0 {
-				return 0, io.EOF
-			}
-
-			// ref :117
-			i, err := s.writeReaderFromSecondBuffer(p)
-			if err != nil {
-				if err != io.EOF {
-					log.Fatalf("unknown err %s", err)
-				}
-				return i, err
-			}
-			return i, err
-		}
-
-		if s.buffer.Len() == 0 {
-			s.fileSectorPos = s.sectorPos + CLUSTER_SIZE
-			_, err := s.readGrainData()
-			if err != nil {
-				if err != io.EOF {
-					log.Fatalf("unknown err %s", err)
-				}
-				return 0, err
-			}
-
-			continue
-		}
-
-		if s.fileSectorPos == s.sectorPos && s.secondbuffer.Len() == 0 {
-			i, err := s.writeReaderFromBuffer(p)
-			if err != nil {
-				if err != io.EOF {
-					log.Fatalf("unknown err %s", err)
-				}
-				return i, err
-			}
-			return i, err
-		} else {
-			if s.secondbuffer.Len() == 0 {
-				s.fileSectorPos = s.fileSectorPos + CLUSTER_SIZE
-				_, err := s.secondbuffer.Write(make([]byte, SECOTR_SIZE*CLUSTER_SIZE))
-				if err != nil {
-					return 0, xerrors.Errorf("failed to write second buffer: %w", err)
-				}
-			}
-
-			i, err := s.writeReaderFromSecondBuffer(p)
-			if err != nil {
-				if err != io.EOF {
-					log.Fatalf("unknown err %s", err)
-				}
-				return i, err
-			}
-			return i, err
-		}
-	}
-}
-
-func (s *streamOptimizedExtentReader) writeReaderFromBuffer(p []byte) (int, error) {
-	if (s.writeSize + uint64(len(p))) > (s.partition.GetSize() * SECOTR_SIZE) {
-		ws := (s.partition.GetSize() * SECOTR_SIZE) - s.writeSize
-		s.writeSize += ws
-		i, _ := s.buffer.Read(p[:ws])
-		return i, io.EOF
-	}
-
-	s.writeSize += uint64(len(p))
-	return s.buffer.Read(p)
-}
-func (s *streamOptimizedExtentReader) writeReaderFromSecondBuffer(p []byte) (int, error) {
-	if (s.writeSize + uint64(len(p))) > (s.partition.GetSize() * SECOTR_SIZE) {
-		ws := (s.partition.GetSize() * SECOTR_SIZE) - s.writeSize
-		s.writeSize += ws
-		i, _ := s.buffer.Read(p[:ws])
-		return i, io.EOF
-	}
-
-	s.writeSize += uint64(len(p))
-	return s.secondbuffer.Read(p)
-}
-
-func (s *streamOptimizedExtentReader) Next() (types.Partition, error) {
-	s.secondbuffer.Reset()
-	// s.buffer.Reset()
-	s.writeSize = 0
-	partitions := s.diskDriver.GetPartitions()
-	if s.partition == nil {
-		p := s.diskDriver.GetPartitions()[0]
-		s.partition = p
-	} else {
-		for _, p := range partitions {
-			if p.GetStartSector() > s.partition.GetStartSector() {
-				s.partition = p
-				break
-			} else if p.GetStartSector() == 0 ||
-				partitions[len(partitions)-1].GetStartSector() == p.GetStartSector() {
-				return nil, io.EOF
-			}
-		}
-	}
-	if s.partition.GetStartSector() == s.sectorPos {
-		s.fileSectorPos = s.sectorPos
-		return s.partition, nil
-	} else {
-		s.buffer.Reset()
-	}
-
-	var err error
-	for {
-		if s.partition.GetStartSector() > s.sectorPos {
-			s.sectorPos, err = s.readGrainData()
-			if err != nil {
-				return nil, xerrors.Errorf("failed to next error: %w", err)
-			}
-			if s.partition.GetStartSector() <= s.sectorPos {
-				s.fileSectorPos = s.sectorPos
-				return s.partition, nil
-			}
-		} else {
-			s.fileSectorPos = s.sectorPos
-			return s.partition, nil
-		}
-		s.buffer.Reset()
-	}
-}
-
-// TODO: return read size
-func (s *streamOptimizedExtentReader) readGrainData() (uint64, error) {
-	sector := make([]byte, Sector)
-	for {
-		if _, err := s.r.Read(sector); err != nil {
-			return 0, xerrors.Errorf("failed to read marker error: %w", err)
-		}
-		m := parseMarker(sector)
-		switch m.Type {
-		case MARKER_GRAIN:
-			s.sectorPos = m.Value
-			buf := new(bytes.Buffer)
-			if m.Size < 500 {
-				_, err := buf.Write(m.Data[:m.Size])
-				if err != nil {
-					return 0, xerrors.Errorf("failed to write data: %w", err)
-				}
-			} else {
-				_, err := buf.Write(m.Data)
-				if err != nil {
-					return 0, xerrors.Errorf("failed to write data: %w", err)
-				}
-				limit := uint64(math.Ceil(float64(m.Size-500) / float64(Sector)))
-				for i := uint64(0); i < limit; i++ {
-					if _, err := s.r.Read(sector); err != nil {
-						return 0, xerrors.Errorf("failed to read Grain Data error: %w", err)
-					}
-					_, err := buf.Write(sector)
-					if err != nil {
-						return 0, xerrors.Errorf("failed to write data: %w", err)
-					}
-				}
-			}
-			zr, err := zlib.NewReader(buf)
-			if err != nil {
-				return 0, xerrors.Errorf("failed to read zlib error: %w", err)
-			}
-			defer zr.Close()
-
-			_, err = io.Copy(s.buffer, zr)
-			if err != nil {
-				return 0, xerrors.Errorf("failed to decompress deflate error: %w", err)
-			}
-
-			return m.Value, nil
-
-		case MARKER_EOS:
-			// Do not use end of stream
-		case MARKER_GT:
-			// Do not use grain tables data
-			for i := uint64(0); i < m.Value; i++ {
-				if _, err := s.r.Read(sector); err != nil {
-					return 0, xerrors.Errorf("failed to read Grain Table error: %w", err)
-				}
-			}
-		case MARKER_GD:
-			// Do not use grain directries data
-			for i := uint64(0); i < m.Value; i++ {
-				if _, err := s.r.Read(sector); err != nil {
-					return 0, xerrors.Errorf("failed to read Grain Directory error: %w", err)
-				}
-			}
-		case MARKER_FOOTER:
-			return 0, io.EOF
-		default:
-			return 0, xerrors.New("Invalid Marker Type")
-		}
-	}
-}
-
-/*
-### Marker Specs ( 512 bytes )
-+--------+------+-------------+
-| Offset | Size | Description |
-+--------+------+-------------+
-| 0      | 8    | Value       |
-| 8      | 4    | Data Size   |
-| 12     | 4    | Marker Type |
-| 16     | 496  | Padding     |
-+--------+------+-------------+
-| if marker size > 0          |
-| 12     | ...  | GrainData   |
-+--------+------+-------------+
-*/
 type Marker struct {
 	Value uint64
 	Size  uint32
 	Type  uint32
 	Data  []byte
+}
+
+type StreamOptimizedImage struct {
+	VMDK
+
+	SparseExtentHeader SparseExtentHeader
+	GD                 GrainDirectory
+	GT                 GrainTable
+	state              State
+	sinfo              StateInfo
+}
+
+type StateInfo struct {
+	batIndex       int
+	blockOffset    int64
+	fileOffset     int64
+	bytesAvailable int64
+}
+
+type State struct {
+	chunkRatio            uint32
+	chunkRatioBits        int
+	sectorPerBlock        uint32
+	sectorPerBlockBits    int
+	logicalSectorSizeBits int
+}
+
+type SparseExtentHeader struct {
+	MagicNumber        uint32
+	Version            uint32
+	Flags              uint32
+	Capacity           uint64
+	GrainSize          uint64
+	DescriptorOffset   uint64
+	DescriptorSize     uint64
+	NumberGTEsPerGT    uint32
+	RgdOffset          uint64
+	GdOffset           uint64
+	OverHead           uint64
+	UncleanShutdown    uint8
+	SingleEndLineChar  byte
+	NonEndLineChar     byte
+	DoubleEndLineChar1 byte
+	DoubleEndLineChar2 byte
+	CompressAlgorithm  uint16
+}
+
+type Entry int32
+
+type GrainDirectory struct {
+	Entries []Entry
+}
+
+type GrainTable struct {
+	Entries []Entry
+}
+
+var (
+	ErrDataNotPresent = xerrors.New("data not present")
+)
+
+func parseSparseExtentHeader(v VMDK) (SparseExtentHeader, error) {
+	_, err := v.f.Seek(-1*Sector*2, 2)
+	if err != nil {
+		return SparseExtentHeader{}, err
+	}
+
+	h := SparseExtentHeader{}
+	err = binary.Read(v.f, binary.LittleEndian, &h)
+	if err != nil {
+		return SparseExtentHeader{}, err
+	}
+	// TODO: check magick number
+
+	return h, nil
+}
+
+func (h SparseExtentHeader) parseGrainDirectoryEntries(v VMDK) (GrainDirectory, error) {
+	_, err := v.f.Seek(int64(h.GdOffset-1)*Sector, 0)
+	if err != nil {
+		return GrainDirectory{}, err
+	}
+
+	buf := make([]byte, Sector)
+	_, err = v.f.Read(buf)
+	if err != nil {
+		return GrainDirectory{}, xerrors.Errorf("failed to read grain directory marker: %w", err)
+	}
+	marker := parseMarker(buf)
+	if marker.Type != MARKER_GD {
+		return GrainDirectory{}, xerrors.Errorf("invalid marker: %d, expected: %d", marker.Type, MARKER_GD)
+	}
+
+	buf = make([]byte, Sector*int64(marker.Value))
+	_, err = v.f.Read(buf)
+	if err != nil {
+		return GrainDirectory{}, xerrors.Errorf("failed to read grain directory: %w", err)
+	}
+
+	var gd GrainDirectory
+	gd.Entries, err = parseEntries(buf, marker.Value)
+	if err != nil {
+		return GrainDirectory{}, xerrors.Errorf("failed to parse entries: %w", err)
+	}
+
+	return gd, nil
+}
+
+func (v StreamOptimizedImage) parseGrainTableEntries(gdeOffset int64) (GrainTable, error) {
+	var gt GrainTable
+	_, err := v.f.Seek((gdeOffset-1)*Sector, 0)
+	if err != nil {
+		return GrainTable{}, xerrors.Errorf("failed to seek to grain table offset: %w", err)
+	}
+
+	buf := make([]byte, Sector)
+	_, err = v.f.Read(buf)
+	if err != nil {
+		return GrainTable{}, xerrors.Errorf("failed to read grain table marker: %w", err)
+	}
+	marker := parseMarker(buf)
+	if marker.Type != MARKER_GT {
+		return GrainTable{}, xerrors.Errorf("invalid marker: %d, expected: %d", marker.Type, MARKER_GT)
+	}
+
+	buf = make([]byte, Sector*int64(marker.Value))
+	_, err = v.f.Read(buf)
+	if err != nil {
+		return GrainTable{}, xerrors.Errorf("failed to read grain directory: %w", err)
+	}
+
+	entries, err := parseEntries(buf, marker.Value)
+	if err != nil {
+		return GrainTable{}, xerrors.Errorf("failed to parse entries: %w", err)
+	}
+	gt.Entries = append(gt.Entries, entries...)
+
+	return gt, nil
+}
+
+func parseEntries(buf []byte, value uint64) ([]Entry, error) {
+	entrySize := int64(unsafe.Sizeof(Entry(0)))
+	r := bytes.NewReader(buf)
+	var entries []Entry
+	for i := int64(0); i < Sector*int64(value)/entrySize; i++ {
+		var e Entry
+		if err := binary.Read(r, binary.LittleEndian, &e); err != nil {
+			return nil, xerrors.Errorf("failed to parse entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+func NewStreamOptimizedImage(v VMDK) (*StreamOptimizedImage, error) {
+	h, err := parseSparseExtentHeader(v)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to parse sparse extent header: %w", err)
+	}
+
+	gd, err := h.parseGrainDirectoryEntries(v)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to parse grain directory: %w", err)
+	}
+
+	return &StreamOptimizedImage{
+		VMDK:               v,
+		SparseExtentHeader: h,
+		GD:                 gd,
+	}, nil
+}
+
+func (v *StreamOptimizedImage) Size() int64 {
+	var size int64
+	for _, extent := range v.DiskDescriptor.Extents {
+		size += extent.Size
+	}
+	return size * Sector
+}
+
+func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (n int, err error) {
+	if len(p) != int(Sector) {
+		return 0, xerrors.Errorf("invalid byte length %d, required %d bytes length", len(p), Sector)
+	}
+	grainOffset, dataOffset, err := v.TranslateOffset(off)
+	if err == ErrDataNotPresent {
+		return int(Sector), nil
+	} else if err != nil {
+		return 0, xerrors.Errorf("failed to translate offset: %w", err)
+	}
+
+	b, err := v.readGrain(grainOffset)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to read grain data: %w", err)
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return 0, xerrors.Errorf("failed to read zlib error: %w", err)
+	}
+	defer zr.Close()
+
+	cache := make([]byte, 65536)
+	_, err = io.ReadFull(zr, cache)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to decompress deflate error: %w", err)
+	}
+
+	if v.Header.GrainSize*Sector-dataOffset < Sector {
+		return copy(p, cache[dataOffset:]), nil
+	} else {
+		return copy(p, cache[dataOffset:dataOffset+Sector]), nil
+	}
+}
+
+func (v *StreamOptimizedImage) readGrain(grainOffset int64) ([]byte, error) {
+	_, err := v.f.Seek(grainOffset*Sector, 0)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to seek to grain data offset: %w", err)
+	}
+
+	buf := make([]byte, Sector)
+	_, err = v.f.Read(buf)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read grain marker: %w", err)
+	}
+	m := parseMarker(buf)
+	if m.Type != MARKER_GRAIN {
+		return nil, xerrors.Errorf("invalid marker type: %d, expected: %d", m.Type, MARKER_GRAIN)
+	}
+	if m.Size == 0 {
+		return nil, xerrors.Errorf("invalid grain size: %d", m.Size)
+	}
+
+	if m.Size < 500 {
+		return m.Data[:m.Size], nil
+	}
+	readAvailable := m.Size - 500
+
+	buf = make([]byte, readAvailable)
+	_, err = v.f.Read(buf)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read grain data: %w", err)
+	}
+
+	return append(m.Data, buf...), nil
 }
 
 func parseMarker(sector []byte) *Marker {
@@ -306,4 +277,45 @@ func parseMarker(sector []byte) *Marker {
 			Data:  sector[12:],
 		}
 	}
+}
+
+func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) {
+	// grainSize: 128
+	// sector: 512
+	// grain: 64KB (decompressed deflate)
+	grain := v.Header.GrainSize * Sector
+
+	// number GTEs per GT: 512
+	// gtSize: 32MB
+	gtSize := grain * int64(v.SparseExtentHeader.NumberGTEsPerGT)
+
+	// offset: 32MB + 4KB
+	// gtSize: 32MB
+	// gtIndex: 1
+	gtIndex := off / gtSize
+	gtOffset := int64(v.GD.Entries[gtIndex])
+	if gtOffset == 0 {
+		return 0, 0, ErrDataNotPresent
+	}
+	gt, err := v.parseGrainTableEntries(gtOffset)
+	if err != nil {
+		return 0, 0, xerrors.Errorf("failed to parse grain table entries: %w", err)
+	}
+
+	// logical grain data offset.
+	// offset: 32MB + 4KB
+	// gtSize: 32MB
+	// grain: 64KB
+	// entryIndex: 0
+	// grainOffset gt[entryOffset]
+	entryIndex := off % gtSize / grain
+	grainOffset := gt.Entries[entryIndex]
+	if grainOffset == 0 {
+		return 0, 0, ErrDataNotPresent
+	}
+
+	// dataOffset: 4KB
+	dataOffset := off % gtSize % grain
+
+	return int64(grainOffset), dataOffset, nil
 }

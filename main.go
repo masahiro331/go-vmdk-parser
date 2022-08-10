@@ -1,44 +1,46 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"log"
 	"os"
 
+	disk "github.com/masahiro331/go-disk"
 	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
 )
 
 func main() {
-	f, err := os.Open("path to your vmdk image")
+	v, err := vmdk.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
-	reader, err := vmdk.NewReader(f)
+
+	driver, err := disk.NewDriver(v)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	for {
-		partition, err := reader.Next()
+		p, err := driver.Next()
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
+			log.Fatal(err)
+		}
+		if p.Bootable() {
+			continue
+		}
+
+		reader := p.GetSectionReader()
+		f, err := os.Create(p.Name())
+		if err != nil {
 			log.Fatal(err)
 		}
 
-		if !partition.Bootable() {
-			f, err := os.Create(partition.Name() + ".img")
+		for {
+			buf := make([]byte, 512)
+			_, err := reader.Read(buf)
 			if err != nil {
 				log.Fatal(err)
 			}
-
-			i, err := io.Copy(f, reader)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println("file size:", i)
+			f.Write(buf)
 		}
 	}
 }
