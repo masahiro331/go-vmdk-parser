@@ -5,32 +5,15 @@ VMDK parser for Virtual Machine Image.
 ## Quick Start 
 ```
 func main() {
-	f, err := os.Open("./generic-alpine38-virtualbox-disk001.vmdk")
+	f, err := os.Open(os.Args[1])
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("%+v", err)
 	}
-	reader, err := vmdk.NewReader(f)
+	v, err := vmdk.Open(f)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("%+v", err)
 	}
 
-	for i := 0; i < 4; i++ {
-		partition, err := reader.Next()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Fatal(err)
-		}
-        if partition.Boot != true {
-            buf := make([]byte, 1024)
-            for {
-                _, err := reader.Read(buf)
-                if err == io.EOF {
-                    break
-                }
-            }
-        }
-	}
+	fmt.Println(v.Size())
 }
 ```
