@@ -12,7 +12,7 @@ import (
 )
 
 type Header struct {
-	Signature          int32
+	Signature          uint32
 	Version            int32
 	Flag               int32
 	Capacity           int64
@@ -48,6 +48,7 @@ var (
 	_                          sectionReaderInterface = &StreamOptimizedImage{}
 	ErrUnSupportedDividedImage                        = xerrors.New("divided images are not supported")
 	ErrUnSupportedType                                = xerrors.New("type is not supported")
+	ErrIsNotVMDK                                      = xerrors.New("this file is not vmdk")
 )
 
 type VMDK struct {
@@ -72,6 +73,14 @@ type ExtentDescription struct {
 	Name string
 }
 
+func Check(f *os.File) (bool, error) {
+	var signature uint32
+	if err := binary.Read(f, binary.LittleEndian, signature); err != nil {
+		return false, xerrors.Errorf("failed to read signature: %w", err)
+	}
+	return signature == KDMV, nil
+}
+
 func Open(f *os.File) (*io.SectionReader, error) {
 	v := VMDK{f: f}
 	var header Header
@@ -79,6 +88,9 @@ func Open(f *os.File) (*io.SectionReader, error) {
 		return nil, xerrors.Errorf("failed to read binary error: %w", err)
 	}
 	v.Header = header
+	if header.Signature != KDMV {
+		return nil, xerrors.Errorf("invalid signature: actual(0x%08x), expected(0x%08x)", header.Signature, KDMV)
+	}
 
 	i, err := f.Seek(header.DescriptorOffset*Sector, io.SeekStart)
 	if err != nil {

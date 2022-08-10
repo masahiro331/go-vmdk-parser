@@ -9,10 +9,6 @@ import (
 	"unsafe"
 )
 
-const (
-	MagickNumber = 0x564d4440
-)
-
 var (
 	ErrReadSizeFormat   = "failed to read size error: actual(%d), expected(%d)"
 	ErrSeekOffsetFormat = "failed to seek offset error: actual(%d), expected(%d)"
@@ -79,8 +75,8 @@ func parseSparseExtentHeader(v VMDK) (SparseExtentHeader, error) {
 	if err != nil {
 		return SparseExtentHeader{}, xerrors.Errorf("failed to read binary error: %w", err)
 	}
-	if h.MagicNumber != MagickNumber {
-		return SparseExtentHeader{}, xerrors.Errorf("invalid magick number: actual(0x%08x), expected(0x%08x)", h.MagicNumber, MagickNumber)
+	if h.MagicNumber != KDMV {
+		return SparseExtentHeader{}, xerrors.Errorf("invalid magick number: actual(0x%08x), expected(0x%08x)", h.MagicNumber, KDMV)
 	}
 
 	return h, nil
