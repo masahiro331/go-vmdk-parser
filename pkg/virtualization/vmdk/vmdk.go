@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
+// Header specification https://www.vmware.com/app/vmdk/?src=vmdk
 type Header struct {
 	Signature          uint32
 	Version            int32
@@ -75,34 +76,33 @@ type ExtentDescription struct {
 
 func Check(f *os.File) (bool, error) {
 	var signature uint32
-	if err := binary.Read(f, binary.LittleEndian, signature); err != nil {
+	if err := binary.Read(f, binary.LittleEndian, &signature); err != nil {
 		return false, xerrors.Errorf("failed to read signature: %w", err)
 	}
 	return signature == KDMV, nil
 }
 
-func Open(f *os.File) (*io.SectionReader, error) {
-	v := VMDK{f: f}
+func ParseHeader(r io.Reader) (Header, error) {
 	var header Header
-	if err := binary.Read(f, binary.LittleEndian, &header); err != nil {
-		return nil, xerrors.Errorf("failed to read binary error: %w", err)
+	if err := binary.Read(r, binary.LittleEndian, &header); err != nil {
+		return Header{}, xerrors.Errorf("failed to read binary error: %w", err)
 	}
-	v.Header = header
 	if header.Signature != KDMV {
-		return nil, xerrors.Errorf("invalid signature: actual(0x%08x), expected(0x%08x)", header.Signature, KDMV)
+		return Header{}, xerrors.Errorf("invalid signature: actual(0x%08x), expected(0x%08x)", header.Signature, KDMV)
 	}
+	return header, nil
+}
 
-	i, err := f.Seek(header.DescriptorOffset*Sector, io.SeekStart)
+func Open(f *os.File) (*io.SectionReader, error) {
+	var err error
+
+	v := VMDK{f: f}
+	v.Header, err = ParseHeader(v.f)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to seek descriptor: %w", err)
-	}
-	if i != header.DescriptorOffset*Sector {
-		return nil, xerrors.Errorf("failed to seek offset: actual(%d), expected(%d)", i, header.DescriptorOffset*Sector)
+		return nil, xerrors.Errorf("failed to parse header: %w", err)
 	}
 
-	v.DiskDescriptor, err = parseDiskDescriptor(
-		io.LimitReader(f, Sector*header.DescriptorSize),
-	)
+	v.DiskDescriptor, err = ParseDiskDescriptor(v.f, v.Header)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse disk descriptor: %w", err)
 	}
@@ -125,10 +125,17 @@ func Open(f *os.File) (*io.SectionReader, error) {
 	return io.NewSectionReader(r, io.SeekStart, r.Size()), nil
 }
 
-func parseDiskDescriptor(r io.Reader) (DiskDescriptor, error) {
-	descriptor := DiskDescriptor{}
-	scanner := bufio.NewScanner(r)
+func ParseDiskDescriptor(f *os.File, header Header) (DiskDescriptor, error) {
+	i, err := f.Seek(header.DescriptorOffset*Sector, io.SeekStart)
+	if err != nil {
+		return DiskDescriptor{}, xerrors.Errorf("failed to seek descriptor: %w", err)
+	}
+	if i != header.DescriptorOffset*Sector {
+		return DiskDescriptor{}, xerrors.Errorf(ErrSeekOffsetFormat, i, header.DescriptorOffset*Sector)
+	}
 
+	var descriptor DiskDescriptor
+	scanner := bufio.NewScanner(io.LimitReader(f, Sector*header.DescriptorSize))
 	var currentSectionFunc func(string, *DiskDescriptor) error
 	for {
 		if !scanner.Scan() {
@@ -146,6 +153,9 @@ func parseDiskDescriptor(r io.Reader) (DiskDescriptor, error) {
 		case SectionDiskDataBase:
 			currentSectionFunc = parseDiskDataBase
 		default:
+			if currentSectionFunc == nil {
+				return DiskDescriptor{}, xerrors.Errorf("invalid descriptor")
+			}
 			err := currentSectionFunc(line, &descriptor)
 			if err != nil {
 				return DiskDescriptor{}, err
