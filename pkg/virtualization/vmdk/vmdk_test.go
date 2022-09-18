@@ -1,10 +1,11 @@
 package vmdk_test
 
 import (
-	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
 	"os"
 	"reflect"
 	"testing"
+
+	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
 )
 
 func TestParseDiskDescriptor(t *testing.T) {

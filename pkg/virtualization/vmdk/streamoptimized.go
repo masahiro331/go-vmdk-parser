@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"golang.org/x/xerrors"
 	"io"
 	"unsafe"
+
+	"golang.org/x/xerrors"
 )
 
 var (
