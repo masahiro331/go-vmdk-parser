@@ -74,9 +74,9 @@ type ExtentDescription struct {
 	Name string
 }
 
-func Check(f *os.File) (bool, error) {
+func Check(r io.Reader) (bool, error) {
 	var signature uint32
-	if err := binary.Read(f, binary.LittleEndian, &signature); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &signature); err != nil {
 		return false, xerrors.Errorf("failed to read signature: %w", err)
 	}
 	return signature == KDMV, nil
