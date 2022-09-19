@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
@@ -56,7 +55,7 @@ type VMDK struct {
 	Header         Header
 	DiskDescriptor DiskDescriptor
 
-	f *os.File
+	rs io.ReadSeeker
 }
 
 type DiskDescriptor struct {
@@ -93,16 +92,16 @@ func ParseHeader(r io.Reader) (Header, error) {
 	return header, nil
 }
 
-func Open(f *os.File) (*io.SectionReader, error) {
+func Open(rs io.ReadSeeker) (*io.SectionReader, error) {
 	var err error
 
-	v := VMDK{f: f}
-	v.Header, err = ParseHeader(v.f)
+	v := VMDK{rs: rs}
+	v.Header, err = ParseHeader(v.rs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse header: %w", err)
 	}
 
-	v.DiskDescriptor, err = ParseDiskDescriptor(v.f, v.Header)
+	v.DiskDescriptor, err = ParseDiskDescriptor(v.rs, v.Header)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse disk descriptor: %w", err)
 	}
@@ -125,8 +124,8 @@ func Open(f *os.File) (*io.SectionReader, error) {
 	return io.NewSectionReader(r, io.SeekStart, r.Size()), nil
 }
 
-func ParseDiskDescriptor(f *os.File, header Header) (DiskDescriptor, error) {
-	i, err := f.Seek(header.DescriptorOffset*Sector, io.SeekStart)
+func ParseDiskDescriptor(rs io.ReadSeeker, header Header) (DiskDescriptor, error) {
+	i, err := rs.Seek(header.DescriptorOffset*Sector, io.SeekStart)
 	if err != nil {
 		return DiskDescriptor{}, xerrors.Errorf("failed to seek descriptor: %w", err)
 	}
@@ -135,7 +134,7 @@ func ParseDiskDescriptor(f *os.File, header Header) (DiskDescriptor, error) {
 	}
 
 	var descriptor DiskDescriptor
-	scanner := bufio.NewScanner(io.LimitReader(f, Sector*header.DescriptorSize))
+	scanner := bufio.NewScanner(io.LimitReader(rs, Sector*header.DescriptorSize))
 	var currentSectionFunc func(string, *DiskDescriptor) error
 	for {
 		if !scanner.Scan() {

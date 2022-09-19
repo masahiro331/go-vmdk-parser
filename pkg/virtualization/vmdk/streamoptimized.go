@@ -66,13 +66,13 @@ var (
 
 func parseSparseExtentHeader(v VMDK) (SparseExtentHeader, error) {
 	// Sparse extent header is in the last 1024 bytes.
-	_, err := v.f.Seek(-1024, io.SeekEnd)
+	_, err := v.rs.Seek(-1024, io.SeekEnd)
 	if err != nil {
 		return SparseExtentHeader{}, xerrors.Errorf("failed to seek error: %w", err)
 	}
 
 	h := SparseExtentHeader{}
-	err = binary.Read(v.f, binary.LittleEndian, &h)
+	err = binary.Read(v.rs, binary.LittleEndian, &h)
 	if err != nil {
 		return SparseExtentHeader{}, xerrors.Errorf("failed to read binary error: %w", err)
 	}
@@ -85,7 +85,7 @@ func parseSparseExtentHeader(v VMDK) (SparseExtentHeader, error) {
 
 func (h SparseExtentHeader) parseGrainDirectoryEntries(v VMDK) (GrainDirectory, error) {
 	offset := int64(h.GdOffset-1) * Sector
-	off, err := v.f.Seek(offset, io.SeekStart)
+	off, err := v.rs.Seek(offset, io.SeekStart)
 	if err != nil {
 		return GrainDirectory{}, err
 	}
@@ -94,7 +94,7 @@ func (h SparseExtentHeader) parseGrainDirectoryEntries(v VMDK) (GrainDirectory, 
 	}
 
 	buf := make([]byte, Sector)
-	n, err := v.f.Read(buf)
+	n, err := v.rs.Read(buf)
 	if err != nil {
 		return GrainDirectory{}, xerrors.Errorf("failed to read grain directory marker: %w", err)
 	}
@@ -109,7 +109,7 @@ func (h SparseExtentHeader) parseGrainDirectoryEntries(v VMDK) (GrainDirectory, 
 
 	dataSize := Sector * int64(marker.Value)
 	buf = make([]byte, dataSize)
-	n, err = v.f.Read(buf)
+	n, err = v.rs.Read(buf)
 	if err != nil {
 		return GrainDirectory{}, xerrors.Errorf("failed to read grain directory: %w", err)
 	}
@@ -130,7 +130,7 @@ func (v *StreamOptimizedImage) parseGrainTableEntries(gdeOffset int64) (GrainTab
 	var gt GrainTable
 
 	offset := (gdeOffset - 1) * Sector
-	off, err := v.f.Seek(offset, io.SeekStart)
+	off, err := v.rs.Seek(offset, io.SeekStart)
 	if err != nil {
 		return GrainTable{}, xerrors.Errorf("failed to seek to grain table offset: %w", err)
 	}
@@ -139,7 +139,7 @@ func (v *StreamOptimizedImage) parseGrainTableEntries(gdeOffset int64) (GrainTab
 	}
 
 	buf := make([]byte, Sector)
-	n, err := v.f.Read(buf)
+	n, err := v.rs.Read(buf)
 	if err != nil {
 		return GrainTable{}, xerrors.Errorf("failed to read grain table marker: %w", err)
 	}
@@ -154,7 +154,7 @@ func (v *StreamOptimizedImage) parseGrainTableEntries(gdeOffset int64) (GrainTab
 
 	dataSize := Sector * int64(marker.Value)
 	buf = make([]byte, dataSize)
-	n, err = v.f.Read(buf)
+	n, err = v.rs.Read(buf)
 	if err != nil {
 		return GrainTable{}, xerrors.Errorf("failed to read grain directory: %w", err)
 	}
@@ -250,7 +250,7 @@ func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (n int, err error) {
 }
 
 func (v *StreamOptimizedImage) readGrain(grainOffset int64) ([]byte, error) {
-	off, err := v.f.Seek(grainOffset*Sector, 0)
+	off, err := v.rs.Seek(grainOffset*Sector, 0)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to seek to grain data offset: %w", err)
 	}
@@ -259,7 +259,7 @@ func (v *StreamOptimizedImage) readGrain(grainOffset int64) ([]byte, error) {
 	}
 
 	buf := make([]byte, Sector)
-	n, err := v.f.Read(buf)
+	n, err := v.rs.Read(buf)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to read grain marker: %w", err)
 	}
@@ -281,7 +281,7 @@ func (v *StreamOptimizedImage) readGrain(grainOffset int64) ([]byte, error) {
 	readAvailable := m.Size - 500
 
 	buf = make([]byte, readAvailable)
-	n, err = v.f.Read(buf)
+	n, err = v.rs.Read(buf)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to read grain data: %w", err)
 	}
