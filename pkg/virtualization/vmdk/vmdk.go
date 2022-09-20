@@ -54,6 +54,7 @@ var (
 type VMDK struct {
 	Header         Header
 	DiskDescriptor DiskDescriptor
+	cache          Cache
 
 	rs io.ReadSeeker
 }
@@ -92,10 +93,14 @@ func ParseHeader(r io.Reader) (Header, error) {
 	return header, nil
 }
 
-func Open(rs io.ReadSeeker) (*io.SectionReader, error) {
+func Open(rs io.ReadSeeker, cache Cache) (*io.SectionReader, error) {
 	var err error
 
-	v := VMDK{rs: rs}
+	// If cache is not provided, use mock.
+	if cache == nil {
+		cache = &mockCache{}
+	}
+	v := VMDK{rs: rs, cache: cache}
 	v.Header, err = ParseHeader(v.rs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse header: %w", err)

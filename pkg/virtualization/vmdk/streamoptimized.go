@@ -27,7 +27,7 @@ type StreamOptimizedImage struct {
 
 	SparseExtentHeader SparseExtentHeader
 	GD                 GrainDirectory
-	GT                 GrainTable
+	GTCache            map[int64]GrainTable
 }
 
 type SparseExtentHeader struct {
@@ -200,6 +200,7 @@ func NewStreamOptimizedImage(v VMDK) (*StreamOptimizedImage, error) {
 		VMDK:               v,
 		SparseExtentHeader: h,
 		GD:                 gd,
+		GTCache:            make(map[int64]GrainTable),
 	}, nil
 }
 
@@ -209,6 +210,38 @@ func (v *StreamOptimizedImage) Size() int64 {
 		size += extent.Size
 	}
 	return size * Sector
+}
+
+func (v *StreamOptimizedImage) read(grainOffset int64) ([]byte, error) {
+	data, ok := v.cache.Get(grainOffsetCacheKey(grainOffset))
+	if ok {
+		ret, ok := data.([]byte)
+		if ok {
+			return ret, nil
+		}
+	}
+
+	b, err := v.readGrain(grainOffset)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read grain data: %w", err)
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read zlib error: %w", err)
+	}
+	defer zr.Close()
+
+	grainDataSize := v.Header.GrainSize * Sector
+	decompressedData := make([]byte, grainDataSize)
+	n, err := io.ReadFull(zr, decompressedData)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to decompress deflate error: %w", err)
+	}
+	if int64(n) != grainDataSize {
+		return nil, xerrors.Errorf(ErrReadSizeFormat, n, grainDataSize)
+	}
+	v.cache.Add(grainOffsetCacheKey(grainOffset), decompressedData)
+	return decompressedData, nil
 }
 
 func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (n int, err error) {
@@ -222,30 +255,15 @@ func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (n int, err error) {
 		return 0, xerrors.Errorf("failed to translate offset: %w", err)
 	}
 
-	b, err := v.readGrain(grainOffset)
+	data, err := v.read(grainOffset)
 	if err != nil {
-		return 0, xerrors.Errorf("failed to read grain data: %w", err)
-	}
-	zr, err := zlib.NewReader(bytes.NewReader(b))
-	if err != nil {
-		return 0, xerrors.Errorf("failed to read zlib error: %w", err)
-	}
-	defer zr.Close()
-
-	grainDataSize := v.Header.GrainSize * Sector
-	cache := make([]byte, grainDataSize)
-	n, err = io.ReadFull(zr, cache)
-	if err != nil {
-		return 0, xerrors.Errorf("failed to decompress deflate error: %w", err)
-	}
-	if int64(n) != grainDataSize {
-		return 0, xerrors.Errorf(ErrReadSizeFormat, n, grainDataSize)
+		return 0, xerrors.Errorf("failed to read data: %w", err)
 	}
 
 	if v.Header.GrainSize*Sector-dataOffset < Sector {
-		return copy(p, cache[dataOffset:]), nil
+		return copy(p, data[dataOffset:]), nil
 	} else {
-		return copy(p, cache[dataOffset:dataOffset+Sector]), nil
+		return copy(p, data[dataOffset:dataOffset+Sector]), nil
 	}
 }
 
@@ -324,6 +342,8 @@ func parseMarker(sector []byte) *Marker {
 
 // TranslateOffset is translates the physical offset of a VMDK into a logical offset.
 func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) {
+	var err error
+
 	// grainSize: 128
 	// sector: 512
 	// grain: 64KB (decompressed deflate)
@@ -341,9 +361,14 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 	if gtOffset == 0 {
 		return 0, 0, ErrDataNotPresent
 	}
-	gt, err := v.parseGrainTableEntries(gtOffset)
-	if err != nil {
-		return 0, 0, xerrors.Errorf("failed to parse grain table entries: %w", err)
+	var gt GrainTable
+	gt, ok := v.GTCache[gtOffset]
+	if !ok {
+		gt, err = v.parseGrainTableEntries(gtOffset)
+		if err != nil {
+			return 0, 0, xerrors.Errorf("failed to parse grain table entries: %w", err)
+		}
+		v.GTCache[gtOffset] = gt
 	}
 
 	// logical grain data offset.
