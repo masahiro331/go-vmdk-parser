@@ -176,7 +176,7 @@ func parseDiskDataBase(line string, dd *DiskDescriptor) error {
 
 func parseExtentDescription(line string, dd *DiskDescriptor) error {
 	ss := strings.Fields(line)
-	if len(ss) != 4 {
+	if len(ss) < 4 {
 		return xerrors.Errorf("failed to parse disk extents: %s", line)
 	}
 
