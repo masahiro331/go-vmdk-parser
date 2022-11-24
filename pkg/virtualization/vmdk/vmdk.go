@@ -36,6 +36,7 @@ const (
 	SectionDiskDescriptorFile       = "disk descriptorfile"
 	SectionExtentDescription        = "extent description"
 	SectionDiskDataBase             = "the disk data base"
+	SectionDDB                      = "ddb"
 	Sector                    int64 = 0x200
 )
 
@@ -154,7 +155,7 @@ func ParseDiskDescriptor(rs io.ReadSeeker, header Header) (DiskDescriptor, error
 			currentSectionFunc = parseDiskDescriptorFile
 		case SectionExtentDescription:
 			currentSectionFunc = parseExtentDescription
-		case SectionDiskDataBase:
+		case SectionDiskDataBase, SectionDDB:
 			currentSectionFunc = parseDiskDataBase
 		default:
 			if currentSectionFunc == nil {
@@ -175,6 +176,9 @@ func parseDiskDataBase(line string, dd *DiskDescriptor) error {
 }
 
 func parseExtentDescription(line string, dd *DiskDescriptor) error {
+	if strings.HasPrefix(line, "#") {
+		return nil
+	}
 	ss := strings.Fields(line)
 	if len(ss) < 4 {
 		return xerrors.Errorf("failed to parse disk extents: %s", line)
