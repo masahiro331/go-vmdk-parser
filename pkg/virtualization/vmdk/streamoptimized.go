@@ -23,8 +23,8 @@ type Marker struct {
 	Data  []byte
 }
 
-type StreamOptimizedImage[K string, V []byte] struct {
-	VMDK[K, V]
+type StreamOptimizedImage struct {
+	VMDK
 
 	SparseExtentHeader SparseExtentHeader
 	GD                 GrainDirectory
@@ -127,7 +127,7 @@ func (h SparseExtentHeader) parseGrainDirectoryEntries(rs io.ReadSeeker) (GrainD
 	return gd, nil
 }
 
-func (v *StreamOptimizedImage[K, V]) parseGrainTableEntries(gdeOffset int64) (GrainTable, error) {
+func (v *StreamOptimizedImage) parseGrainTableEntries(gdeOffset int64) (GrainTable, error) {
 	var gt GrainTable
 
 	offset := (gdeOffset - 1) * Sector
@@ -186,7 +186,7 @@ func parseEntries(buf []byte, value uint64) ([]Entry, error) {
 	return entries, nil
 }
 
-func NewStreamOptimizedImage[K string, V []byte](v VMDK[K, V]) (*StreamOptimizedImage[K, V], error) {
+func NewStreamOptimizedImage(v VMDK) (*StreamOptimizedImage, error) {
 	h, err := parseSparseExtentHeader(v.rs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse sparse extent header: %w", err)
@@ -197,7 +197,7 @@ func NewStreamOptimizedImage[K string, V []byte](v VMDK[K, V]) (*StreamOptimized
 		return nil, xerrors.Errorf("failed to parse grain directory: %w", err)
 	}
 
-	return &StreamOptimizedImage[K, V]{
+	return &StreamOptimizedImage{
 		VMDK:               v,
 		SparseExtentHeader: h,
 		GD:                 gd,
@@ -205,7 +205,7 @@ func NewStreamOptimizedImage[K string, V []byte](v VMDK[K, V]) (*StreamOptimized
 	}, nil
 }
 
-func (v *StreamOptimizedImage[K, V]) Size() int64 {
+func (v *StreamOptimizedImage) Size() int64 {
 	var size int64
 	for _, extent := range v.DiskDescriptor.Extents {
 		size += extent.Size
@@ -217,8 +217,8 @@ func grainOffsetCacheKey(n int64) string {
 	return fmt.Sprintf("vmdk:%d", n)
 }
 
-func (v *StreamOptimizedImage[K, V]) read(grainOffset int64) ([]byte, error) {
-	cacheKey := K(grainOffsetCacheKey(grainOffset))
+func (v *StreamOptimizedImage) read(grainOffset int64) ([]byte, error) {
+	cacheKey := grainOffsetCacheKey(grainOffset)
 	data, ok := v.cache.Get(cacheKey)
 	if ok {
 		ret, ok := any(data).([]byte)
@@ -250,7 +250,7 @@ func (v *StreamOptimizedImage[K, V]) read(grainOffset int64) ([]byte, error) {
 	return decompressedData, nil
 }
 
-func (v *StreamOptimizedImage[K, V]) ReadAt(p []byte, off int64) (n int, err error) {
+func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (n int, err error) {
 	if len(p) != int(Sector) {
 		return 0, xerrors.Errorf("invalid byte length %d, required %d bytes length", len(p), Sector)
 	}
@@ -273,7 +273,7 @@ func (v *StreamOptimizedImage[K, V]) ReadAt(p []byte, off int64) (n int, err err
 	}
 }
 
-func (v *StreamOptimizedImage[K, V]) readGrain(grainOffset int64) ([]byte, error) {
+func (v *StreamOptimizedImage) readGrain(grainOffset int64) ([]byte, error) {
 	off, err := v.rs.Seek(grainOffset*Sector, 0)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to seek to grain data offset: %w", err)
@@ -347,7 +347,7 @@ func parseMarker(sector []byte) *Marker {
 }
 
 // TranslateOffset is translates the physical offset of a VMDK into a logical offset.
-func (v *StreamOptimizedImage[K, V]) TranslateOffset(off int64) (int64, int64, error) {
+func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) {
 	var err error
 
 	// grainSize: 128
