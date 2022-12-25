@@ -46,16 +46,16 @@ type sectionReaderInterface interface {
 }
 
 var (
-	_                          sectionReaderInterface = &StreamOptimizedImage{}
+	_                          sectionReaderInterface = &StreamOptimizedImage[string, []byte]{}
 	ErrUnSupportedDividedImage                        = xerrors.New("divided images are not supported")
 	ErrUnSupportedType                                = xerrors.New("type is not supported")
 	ErrIsNotVMDK                                      = xerrors.New("this file is not vmdk")
 )
 
-type VMDK struct {
+type VMDK[K string, V []byte] struct {
 	Header         Header
 	DiskDescriptor DiskDescriptor
-	cache          Cache
+	cache          Cache[K, V]
 
 	rs io.ReadSeeker
 }
@@ -94,14 +94,14 @@ func ParseHeader(r io.Reader) (Header, error) {
 	return header, nil
 }
 
-func Open(rs io.ReadSeeker, cache Cache) (*io.SectionReader, error) {
+func Open[K string, V []byte](rs io.ReadSeeker, cache Cache[K, V]) (*io.SectionReader, error) {
 	var err error
 
 	// If cache is not provided, use mock.
 	if cache == nil {
-		cache = &mockCache{}
+		cache = &mockCache[K, V]{}
 	}
-	v := VMDK{rs: rs, cache: cache}
+	v := VMDK[K, V]{rs: rs, cache: cache}
 	v.Header, err = ParseHeader(v.rs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse header: %w", err)
