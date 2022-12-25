@@ -221,10 +221,7 @@ func (v *StreamOptimizedImage) read(grainOffset int64) ([]byte, error) {
 	cacheKey := grainOffsetCacheKey(grainOffset)
 	data, ok := v.cache.Get(cacheKey)
 	if ok {
-		ret, ok := any(data).([]byte)
-		if ok {
-			return ret, nil
-		}
+		return data, nil
 	}
 
 	b, err := v.readGrain(grainOffset)
