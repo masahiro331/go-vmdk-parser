@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/xerrors"
@@ -29,6 +30,8 @@ type StreamOptimizedImage struct {
 	SparseExtentHeader SparseExtentHeader
 	GD                 GrainDirectory
 	GTCache            map[int64]GrainTable
+
+	mut sync.Mutex
 }
 
 type SparseExtentHeader struct {
@@ -338,10 +341,12 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 	// gtSize: 32MB
 	// gtIndex: 1
 	gtIndex := off / gtSize
+
 	gtOffset := int64(v.GD.Entries[gtIndex])
 	if gtOffset == 0 {
 		return 0, 0, ErrDataNotPresent
 	}
+	v.mut.Lock()
 	var gt GrainTable
 	gt, ok := v.GTCache[gtOffset]
 	if !ok {
@@ -351,6 +356,7 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 		}
 		v.GTCache[gtOffset] = gt
 	}
+	v.mut.Unlock()
 
 	// logical grain data offset.
 	// offset: 32MB + 4KB
