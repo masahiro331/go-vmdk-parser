@@ -201,7 +201,8 @@ func parseExtentDescription(line string, dd *DiskDescriptor) error {
 	return nil
 }
 
-func parseDiskDescriptorFile(line string, dd *DiskDescriptor) error {
+func parseDiskDescriptorFile(rawLine string, dd *DiskDescriptor) error {
+	line := strings.TrimSpace(rawLine)
 	switch {
 	case strings.HasPrefix(line, "version="):
 		vstr := strings.TrimPrefix(line, "version=")
