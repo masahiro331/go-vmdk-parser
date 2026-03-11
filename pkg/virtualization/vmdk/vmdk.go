@@ -161,7 +161,7 @@ func ParseDiskDescriptor(rs io.ReadSeeker, header Header) (DiskDescriptor, error
 			if currentSectionFunc == nil {
 				return DiskDescriptor{}, xerrors.Errorf("invalid descriptor")
 			}
-			err := currentSectionFunc(line, &descriptor)
+			err := currentSectionFunc(strings.TrimSpace(line), &descriptor)
 			if err != nil {
 				return DiskDescriptor{}, err
 			}
@@ -201,8 +201,7 @@ func parseExtentDescription(line string, dd *DiskDescriptor) error {
 	return nil
 }
 
-func parseDiskDescriptorFile(rawLine string, dd *DiskDescriptor) error {
-	line := strings.TrimSpace(rawLine)
+func parseDiskDescriptorFile(line string, dd *DiskDescriptor) error {
 	switch {
 	case strings.HasPrefix(line, "version="):
 		vstr := strings.TrimPrefix(line, "version=")
