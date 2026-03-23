@@ -120,6 +120,7 @@ func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, err
 		return nil, xerrors.Errorf("failed to parse disk descriptor: %w", err)
 	}
 	if len(v.DiskDescriptor.Extents) != 1 {
+		// TODO: Support divided image (e.g. image1.vmdk, image2.vmdk, ... )
 		return nil, ErrUnSupportedDividedImage
 	}
 
