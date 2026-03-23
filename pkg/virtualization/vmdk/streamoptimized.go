@@ -226,7 +226,7 @@ func (v *StreamOptimizedImage) read(grainOffset int64) ([]byte, error) {
 	}
 	defer zr.Close()
 
-	grainDataSize := v.Header.GrainSize * Sector
+	grainDataSize := int64(v.SparseExtentHeader.GrainSize) * Sector
 	decompressedData := make([]byte, grainDataSize)
 	n, err := io.ReadFull(zr, decompressedData)
 	if err != nil {
@@ -240,7 +240,7 @@ func (v *StreamOptimizedImage) read(grainOffset int64) ([]byte, error) {
 }
 
 func (v *StreamOptimizedImage) grainDataSize() int64 {
-	return v.Header.GrainSize * Sector
+	return int64(v.SparseExtentHeader.GrainSize) * Sector
 }
 
 func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (int, error) {
@@ -327,7 +327,7 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 	// grainSize: 128
 	// sector: 512
 	// grain: 64KB (decompressed deflate)
-	grain := v.Header.GrainSize * Sector
+	grain := int64(v.SparseExtentHeader.GrainSize) * Sector
 
 	// number GTEs per GT: 512
 	// gtSize: 32MB
