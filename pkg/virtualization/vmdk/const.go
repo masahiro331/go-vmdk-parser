@@ -11,15 +11,14 @@ const (
 	KDMV = uint32(0x564d444b)
 
 	// Sparse extent header flags
-	FlagUseZeroedGrainTableEntry = int32(0x00000004)
+	FlagUseZeroedGrainTableEntry = uint32(0x00000004)
 
 	// Incompatible flags (upper 16 bits)
 	FlagCompressed  = uint32(0x00010000)
 	FlagEmbeddedLBA = uint32(0x00020000)
-	// Mask for all known incompatible flags
+
 	knownIncompatFlags = FlagCompressed | FlagEmbeddedLBA
-	// Mask for incompatible flag bits
-	incompatFlagsMask = uint32(0xFFFF0000)
+	incompatFlagsMask  = uint32(0xFFFF0000)
 )
 
 const (
