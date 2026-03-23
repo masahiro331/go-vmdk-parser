@@ -204,12 +204,6 @@ func parseDiskDescriptorFile(line string, dd *DiskDescriptor) error {
 	return nil
 }
 
-// ParseTextDescriptor parses a VMDK descriptor from a text reader.
-// This is useful for testing descriptor parsing independently.
-func ParseTextDescriptor(r io.Reader) (DiskDescriptor, error) {
-	return parseDescriptorLines(bufio.NewScanner(r))
-}
-
 func parseDescriptorLines(scanner *bufio.Scanner) (DiskDescriptor, error) {
 	var descriptor DiskDescriptor
 	var currentSectionFunc func(string, *DiskDescriptor) error

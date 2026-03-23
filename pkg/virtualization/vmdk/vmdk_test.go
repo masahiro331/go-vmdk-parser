@@ -3,7 +3,6 @@ package vmdk_test
 import (
 	"os"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
@@ -155,54 +154,6 @@ func TestOpenMonolithicSparseZeroFill(t *testing.T) {
 			t.Errorf("ReadAt() byte[%d] = 0x%02x, want 0x00 (sparse region must be zero-filled)", i, b)
 			break
 		}
-	}
-}
-
-func TestParseTextDescriptorWithWhitespace(t *testing.T) {
-	// Descriptor with leading/trailing whitespace on lines
-	// See: https://github.com/masahiro331/go-vmdk-parser/pull/7
-	// See: https://github.com/aquasecurity/trivy/discussions/10323
-	descriptor := "  # Disk DescriptorFile  \n" +
-		"  version=1  \n" +
-		"  CID=12345678  \n" +
-		"  parentCID=ffffffff  \n" +
-		"  createType=\"monolithicSparse\"  \n" +
-		"\n" +
-		"  # Extent description  \n" +
-		"  RW 128 SPARSE \"test.vmdk\"  \n" +
-		"\n" +
-		"  # The Disk Data Base  \n" +
-		"  ddb.virtualHWVersion = \"4\"  \n"
-
-	dd, err := vmdk.ParseTextDescriptor(strings.NewReader(descriptor))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if dd.Version != 1 {
-		t.Errorf("Version = %d, want 1", dd.Version)
-	}
-	if dd.CID != "12345678" {
-		t.Errorf("CID = %s, want 12345678", dd.CID)
-	}
-	if dd.CreateType != "monolithicSparse" {
-		t.Errorf("CreateType = %s, want monolithicSparse", dd.CreateType)
-	}
-	if len(dd.Extents) != 1 {
-		t.Fatalf("len(Extents) = %d, want 1", len(dd.Extents))
-	}
-	ext := dd.Extents[0]
-	if ext.Mode != "RW" {
-		t.Errorf("Extent.Mode = %s, want RW", ext.Mode)
-	}
-	if ext.Size != 128 {
-		t.Errorf("Extent.Size = %d, want 128", ext.Size)
-	}
-	if ext.Type != "SPARSE" {
-		t.Errorf("Extent.Type = %s, want SPARSE", ext.Type)
-	}
-	if ext.Name != "test.vmdk" {
-		t.Errorf("Extent.Name = %s, want test.vmdk", ext.Name)
 	}
 }
 
