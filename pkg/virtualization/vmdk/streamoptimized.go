@@ -205,14 +205,6 @@ func NewStreamOptimizedImage(v VMDK) (*StreamOptimizedImage, error) {
 	}, nil
 }
 
-func (v *StreamOptimizedImage) Size() int64 {
-	var size int64
-	for _, extent := range v.DiskDescriptor.Extents {
-		size += extent.Size
-	}
-	return size * Sector
-}
-
 func grainOffsetCacheKey(n int64) string {
 	return fmt.Sprintf("vmdk:%d", n)
 }
@@ -253,6 +245,9 @@ func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (n int, err error) {
 	}
 	grainOffset, dataOffset, err := v.TranslateOffset(off)
 	if err == ErrDataNotPresent {
+		for i := range p {
+			p[i] = 0
+		}
 		return int(Sector), nil
 	} else if err != nil {
 		return 0, xerrors.Errorf("failed to translate offset: %w", err)

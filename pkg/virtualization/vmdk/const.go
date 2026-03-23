@@ -22,12 +22,12 @@ const (
 )
 
 const (
-	StreamOptimized = "streamOptimized"
-	// Custom
-	// MonolithicSparse
+	StreamOptimized  = "streamOptimized"
+	MonolithicSparse = "monolithicSparse"
 	// MonolithicFlat
 	// TwoGbMaxExtentSparse
 	// TwoGbMaxExtentFlat
+	// Custom
 	// FullDevice
 	// PartitionedDevice
 	// VmfsPreallocated
