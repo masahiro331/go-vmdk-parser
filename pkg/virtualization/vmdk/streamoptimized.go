@@ -81,6 +81,16 @@ func parseSparseExtentHeader(rs io.ReadSeeker) (SparseExtentHeader, error) {
 		return SparseExtentHeader{}, xerrors.Errorf("invalid magick number: actual(0x%08x), expected(0x%08x)", h.MagicNumber, KDMV)
 	}
 
+	// Reject unknown incompatible flags
+	unknownIncompat := h.Flags & incompatFlagsMask & ^knownIncompatFlags
+	if unknownIncompat != 0 {
+		return SparseExtentHeader{}, xerrors.Errorf("unknown incompatible flags: 0x%08x", unknownIncompat)
+	}
+	// EMBEDDED_LBA requires COMPRESSED
+	if h.Flags&FlagEmbeddedLBA != 0 && h.Flags&FlagCompressed == 0 {
+		return SparseExtentHeader{}, xerrors.Errorf("EMBEDDED_LBA flag requires COMPRESSED flag")
+	}
+
 	return h, nil
 }
 
