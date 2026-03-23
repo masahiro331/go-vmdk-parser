@@ -337,6 +337,9 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 	// gtSize: 32MB
 	// gtIndex: 1
 	gtIndex := off / gtSize
+	if gtIndex >= int64(len(v.GD.Entries)) {
+		return 0, 0, ErrDataNotPresent
+	}
 	gtOffset := int64(v.GD.Entries[gtIndex])
 	if gtOffset == 0 {
 		return 0, 0, ErrDataNotPresent
@@ -351,13 +354,10 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 		v.GTCache[gtOffset] = gt
 	}
 
-	// logical grain data offset.
-	// offset: 32MB + 4KB
-	// gtSize: 32MB
-	// grain: 64KB
-	// entryIndex: 0
-	// grainOffset gt[entryOffset]
 	entryIndex := off % gtSize / grain
+	if entryIndex >= int64(len(gt.Entries)) {
+		return 0, 0, ErrDataNotPresent
+	}
 	grainOffset := gt.Entries[entryIndex]
 	if grainOffset == 0 {
 		return 0, 0, ErrDataNotPresent
