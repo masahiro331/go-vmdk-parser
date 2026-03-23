@@ -9,6 +9,15 @@ const (
 
 	// COWD = uint32(0x434f5744)
 	KDMV = uint32(0x564d444b)
+
+	// Sparse extent header flags
+	FlagUseZeroedGrainTableEntry = int32(0x00000004)
+)
+
+const (
+	// GTE special values
+	GTEEmpty  = Entry(0) // Sparse: no data allocated
+	GTEZeroed = Entry(1) // Zeroed grain (only when FlagUseZeroedGrainTableEntry is set)
 )
 
 const (

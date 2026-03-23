@@ -359,12 +359,13 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 		return 0, 0, ErrDataNotPresent
 	}
 	grainOffset := gt.Entries[entryIndex]
-	if grainOffset == 0 {
+	if grainOffset == GTEEmpty {
+		return 0, 0, ErrDataNotPresent
+	}
+	if grainOffset == GTEZeroed && v.SparseExtentHeader.Flags&uint32(FlagUseZeroedGrainTableEntry) != 0 {
 		return 0, 0, ErrDataNotPresent
 	}
 
-	// dataOffset: 4KB
-	// dataOffset less than grain(default: 64KB)
 	dataOffset := off % gtSize % grain
 
 	return int64(grainOffset), dataOffset, nil
