@@ -1,9 +1,12 @@
 package vmdk_test
 
 import (
+	"bytes"
+	"encoding/binary"
 	"io"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/masahiro331/go-vmdk-parser/pkg/virtualization/vmdk"
@@ -264,6 +267,69 @@ func TestReadAll(t *testing.T) {
 			t.Errorf("ReadAll() byte[%d] = 0x%02x, want 0x00", i, b)
 			break
 		}
+	}
+}
+
+// makeHeader creates a binary-encoded VMDK header for testing.
+func makeHeader(h vmdk.Header) []byte {
+	var buf bytes.Buffer
+	binary.Write(&buf, binary.LittleEndian, h)
+	return buf.Bytes()
+}
+
+func TestParseHeaderIncompatFlags(t *testing.T) {
+	validHeader := vmdk.Header{
+		Signature: 0x564d444b, // KDMV
+		Version:   1,
+		GrainSize: 128,
+	}
+
+	tests := []struct {
+		name    string
+		flag    int32
+		wantErr string
+	}{
+		{
+			name: "no flags",
+			flag: 0,
+		},
+		{
+			name: "compressed flag only",
+			flag: int32(0x00010000),
+		},
+		{
+			name: "compressed and embedded_lba",
+			flag: int32(0x00010000 | 0x00020000),
+		},
+		{
+			name:    "unknown incompatible flag",
+			flag:    int32(0x00040000),
+			wantErr: "unknown incompatible flags",
+		},
+		{
+			name:    "embedded_lba without compressed",
+			flag:    int32(0x00020000),
+			wantErr: "EMBEDDED_LBA flag requires COMPRESSED flag",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := validHeader
+			h.Flag = tt.flag
+			_, err := vmdk.ParseHeader(bytes.NewReader(makeHeader(h)))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ParseHeader() unexpected error: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Fatal("ParseHeader() should return error")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error should contain %q, got: %v", tt.wantErr, err)
+				}
+			}
+		})
 	}
 }
 
