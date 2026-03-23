@@ -1,6 +1,7 @@
 package vmdk_test
 
 import (
+	"io"
 	"os"
 	"reflect"
 	"testing"
@@ -152,6 +153,115 @@ func TestOpenMonolithicSparseZeroFill(t *testing.T) {
 	for i, b := range buf {
 		if b != 0 {
 			t.Errorf("ReadAt() byte[%d] = 0x%02x, want 0x00 (sparse region must be zero-filled)", i, b)
+			break
+		}
+	}
+}
+
+func TestReadAtVariousBufferSizes(t *testing.T) {
+	// vmdk-monolith.img is a 65536-byte (128 sectors) empty monolithicSparse image
+	f, err := os.Open("testdata/vmdk-monolith.img")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	sr, err := vmdk.Open(f, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sizes := []int{1, 256, 512, 1024, 4096, 65536}
+	for _, size := range sizes {
+		buf := make([]byte, size)
+		// Pre-fill with non-zero to verify zero-fill
+		for i := range buf {
+			buf[i] = 0xFF
+		}
+
+		n, err := sr.ReadAt(buf, 0)
+		if err != nil {
+			t.Fatalf("ReadAt(size=%d) err = %v", size, err)
+		}
+		if n != size {
+			t.Fatalf("ReadAt(size=%d) n = %d, want %d", size, n, size)
+		}
+		for i, b := range buf {
+			if b != 0 {
+				t.Errorf("ReadAt(size=%d) byte[%d] = 0x%02x, want 0x00", size, i, b)
+				break
+			}
+		}
+	}
+}
+
+func TestReadAtPartialEOF(t *testing.T) {
+	f, err := os.Open("testdata/vmdk-monolith.img")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	sr, err := vmdk.Open(f, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Read 1024 bytes starting at offset 65024 (512 bytes before EOF)
+	buf := make([]byte, 1024)
+	n, err := sr.ReadAt(buf, 65024)
+	if err != io.EOF {
+		t.Fatalf("ReadAt(65024) err = %v, want io.EOF", err)
+	}
+	if n != 512 {
+		t.Fatalf("ReadAt(65024) n = %d, want 512", n)
+	}
+}
+
+func TestReadAtBeyondEOF(t *testing.T) {
+	f, err := os.Open("testdata/vmdk-monolith.img")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	sr, err := vmdk.Open(f, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buf := make([]byte, 512)
+	n, err := sr.ReadAt(buf, 65536)
+	if err != io.EOF {
+		t.Fatalf("ReadAt(65536) err = %v, want io.EOF", err)
+	}
+	if n != 0 {
+		t.Fatalf("ReadAt(65536) n = %d, want 0", n)
+	}
+}
+
+func TestReadAll(t *testing.T) {
+	f, err := os.Open("testdata/vmdk-monolith.img")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	sr, err := vmdk.Open(f, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := io.ReadAll(io.NewSectionReader(sr, 0, sr.Size()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 65536 {
+		t.Fatalf("ReadAll() len = %d, want 65536", len(data))
+	}
+	for i, b := range data {
+		if b != 0 {
+			t.Errorf("ReadAll() byte[%d] = 0x%02x, want 0x00", i, b)
 			break
 		}
 	}

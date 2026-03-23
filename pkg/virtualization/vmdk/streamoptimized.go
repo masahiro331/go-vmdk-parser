@@ -239,30 +239,12 @@ func (v *StreamOptimizedImage) read(grainOffset int64) ([]byte, error) {
 	return decompressedData, nil
 }
 
-func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (n int, err error) {
-	if len(p) != int(Sector) {
-		return 0, xerrors.Errorf("invalid byte length %d, required %d bytes length", len(p), Sector)
-	}
-	grainOffset, dataOffset, err := v.TranslateOffset(off)
-	if err == ErrDataNotPresent {
-		for i := range p {
-			p[i] = 0
-		}
-		return int(Sector), nil
-	} else if err != nil {
-		return 0, xerrors.Errorf("failed to translate offset: %w", err)
-	}
+func (v *StreamOptimizedImage) grainDataSize() int64 {
+	return v.Header.GrainSize * Sector
+}
 
-	data, err := v.read(grainOffset)
-	if err != nil {
-		return 0, xerrors.Errorf("failed to read data: %w", err)
-	}
-
-	if v.Header.GrainSize*Sector-dataOffset < Sector {
-		return copy(p, data[dataOffset:]), nil
-	} else {
-		return copy(p, data[dataOffset:dataOffset+Sector]), nil
-	}
+func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (int, error) {
+	return readAt(v, p, off)
 }
 
 func (v *StreamOptimizedImage) readGrain(grainOffset int64) ([]byte, error) {
