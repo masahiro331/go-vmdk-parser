@@ -205,3 +205,32 @@ func TestParseTextDescriptorWithWhitespace(t *testing.T) {
 		t.Errorf("Extent.Name = %s, want test.vmdk", ext.Name)
 	}
 }
+
+func TestNewMonolithicSparseImageInvalidHeader(t *testing.T) {
+	tests := []struct {
+		name   string
+		header vmdk.Header
+	}{
+		{
+			name:   "GrainSize is zero",
+			header: vmdk.Header{GrainSize: 0, NumGTEsPerGT: 512, GdOffset: 1, Capacity: 128},
+		},
+		{
+			name:   "NumGTEsPerGT is zero",
+			header: vmdk.Header{GrainSize: 128, NumGTEsPerGT: 0, GdOffset: 1, Capacity: 128},
+		},
+		{
+			name:   "GdOffset is zero",
+			header: vmdk.Header{GrainSize: 128, NumGTEsPerGT: 512, GdOffset: 0, Capacity: 128},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := vmdk.VMDK{Header: tt.header}
+			_, err := vmdk.NewMonolithicSparseImage(v)
+			if err == nil {
+				t.Fatal("NewMonolithicSparseImage() should return error for invalid header")
+			}
+		})
+	}
+}

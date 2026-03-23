@@ -34,6 +34,14 @@ func NewMonolithicSparseImage(v VMDK) (*MonolithicSparseImage, error) {
 // parseGrainDirectoryDirect reads GD entries directly from the offset
 // specified in the header, without markers.
 func parseGrainDirectoryDirect(rs io.ReadSeeker, header Header) (GrainDirectory, error) {
+	if header.GdOffset <= 0 {
+		return GrainDirectory{}, xerrors.Errorf("invalid GdOffset: %d", header.GdOffset)
+	}
+	numGDEntries, err := numGrainDirectoryEntries(header)
+	if err != nil {
+		return GrainDirectory{}, err
+	}
+
 	offset := header.GdOffset * Sector
 	off, err := rs.Seek(offset, io.SeekStart)
 	if err != nil {
@@ -42,8 +50,6 @@ func parseGrainDirectoryDirect(rs io.ReadSeeker, header Header) (GrainDirectory,
 	if off != offset {
 		return GrainDirectory{}, xerrors.Errorf(ErrSeekOffsetFormat, off, offset)
 	}
-
-	numGDEntries := numGrainDirectoryEntries(header)
 	entries := make([]Entry, numGDEntries)
 	if err := binary.Read(rs, binary.LittleEndian, entries); err != nil {
 		return GrainDirectory{}, xerrors.Errorf("failed to read grain directory entries: %w", err)
@@ -52,9 +58,12 @@ func parseGrainDirectoryDirect(rs io.ReadSeeker, header Header) (GrainDirectory,
 	return GrainDirectory{Entries: entries}, nil
 }
 
-func numGrainDirectoryEntries(header Header) int64 {
+func numGrainDirectoryEntries(header Header) (int64, error) {
+	if header.GrainSize == 0 || header.NumGTEsPerGT == 0 {
+		return 0, xerrors.Errorf("invalid header: GrainSize=%d NumGTEsPerGT=%d", header.GrainSize, header.NumGTEsPerGT)
+	}
 	numGrains := (header.Capacity + header.GrainSize - 1) / header.GrainSize
-	return (numGrains + int64(header.NumGTEsPerGT) - 1) / int64(header.NumGTEsPerGT)
+	return (numGrains + int64(header.NumGTEsPerGT) - 1) / int64(header.NumGTEsPerGT), nil
 }
 
 // parseGrainTableDirect reads GT entries directly from the offset, without markers.
