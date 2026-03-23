@@ -95,6 +95,9 @@ func readAt(gr grainReader, p []byte, off int64) (int, error) {
 		}
 
 		available := int64(len(data)) - dataOff
+		if available <= 0 {
+			return totalRead, xerrors.Errorf("invalid data offset %d for grain size %d", dataOff, len(data))
+		}
 		need := int64(len(p) - totalRead)
 		if need > available {
 			need = available
