@@ -2,6 +2,7 @@ package vmdk
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"io"
 	"strconv"
@@ -57,7 +58,8 @@ type VMDK struct {
 	DiskDescriptor DiskDescriptor
 	cache          Cache[string, []byte]
 
-	rs io.ReadSeeker
+	size int64
+	rs   io.ReaderAt
 }
 
 type DiskDescriptor struct {
@@ -94,20 +96,30 @@ func ParseHeader(r io.Reader) (Header, error) {
 	return header, nil
 }
 
-func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, error) {
+func Open(rs io.ReaderAt, size int64, cache Cache[string, []byte]) (io.ReaderAt, error) {
 	var err error
 
 	// If cache is not provided, use mock.
 	if cache == nil {
 		cache = &mockCache[string, []byte]{}
 	}
-	v := VMDK{rs: rs, cache: cache}
-	v.Header, err = ParseHeader(v.rs)
+	v := VMDK{rs: rs, size: size, cache: cache}
+
+	buf := make([]byte, Sector)
+	n, err := rs.ReadAt(buf, 0)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read header: %w", err)
+	}
+	v.Header, err = ParseHeader(bytes.NewReader(buf))
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse header: %w", err)
 	}
 
-	v.DiskDescriptor, err = ParseDiskDescriptor(v.rs, v.Header)
+	_, err = rs.ReadAt(buf, int64(n))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read buffer: %w", err)
+	}
+	v.DiskDescriptor, err = ParseDiskDescriptor(bytes.NewReader(buf), v.Header)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse disk descriptor: %w", err)
 	}
@@ -127,20 +139,12 @@ func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, err
 		return nil, xerrors.Errorf("%s: %w", v.DiskDescriptor.CreateType, ErrUnSupportedType)
 	}
 
-	return io.NewSectionReader(r, io.SeekStart, r.Size()), nil
+	return r, nil
 }
 
-func ParseDiskDescriptor(rs io.ReadSeeker, header Header) (DiskDescriptor, error) {
-	i, err := rs.Seek(header.DescriptorOffset*Sector, io.SeekStart)
-	if err != nil {
-		return DiskDescriptor{}, xerrors.Errorf("failed to seek descriptor: %w", err)
-	}
-	if i != header.DescriptorOffset*Sector {
-		return DiskDescriptor{}, xerrors.Errorf(ErrSeekOffsetFormat, i, header.DescriptorOffset*Sector)
-	}
-
+func ParseDiskDescriptor(rs io.Reader, header Header) (DiskDescriptor, error) {
 	var descriptor DiskDescriptor
-	scanner := bufio.NewScanner(io.LimitReader(rs, Sector*header.DescriptorSize))
+	scanner := bufio.NewScanner(rs)
 	var currentSectionFunc func(string, *DiskDescriptor) error
 	for {
 		if !scanner.Scan() {
