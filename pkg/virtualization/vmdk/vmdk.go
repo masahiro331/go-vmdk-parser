@@ -146,7 +146,7 @@ func ParseDiskDescriptor(rs io.ReadSeeker, header Header) (DiskDescriptor, error
 		if !scanner.Scan() {
 			break
 		}
-		line := scanner.Text()
+		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
