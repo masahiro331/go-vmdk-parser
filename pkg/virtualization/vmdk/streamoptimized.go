@@ -369,11 +369,7 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 		return 0, 0, ErrDataNotPresent
 	}
 	grainOffset := gt.Entries[entryIndex]
-	if grainOffset == GTEEmpty {
-		return 0, 0, ErrDataNotPresent
-	}
-	// Per VMDK spec, GTE=1 is a valid sector offset when FlagUseZeroedGrainTableEntry is not set
-	if grainOffset == GTEZeroed && v.SparseExtentHeader.Flags&FlagUseZeroedGrainTableEntry != 0 {
+	if isGTEAbsent(grainOffset, v.SparseExtentHeader.Flags) {
 		return 0, 0, ErrDataNotPresent
 	}
 

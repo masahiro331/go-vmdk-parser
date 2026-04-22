@@ -172,6 +172,13 @@ func ParseHeader(r io.Reader) (Header, error) {
 	return header, nil
 }
 
+// isGTEAbsent returns true if the grain table entry indicates no data.
+// Per VMDK spec, GTE=1 is a valid sector offset when FlagUseZeroedGrainTableEntry is not set.
+func isGTEAbsent(entry Entry, flags uint32) bool {
+	return entry == GTEEmpty ||
+		(entry == GTEZeroed && flags&FlagUseZeroedGrainTableEntry != 0)
+}
+
 // validateIncompatFlags rejects unknown incompatible flags and
 // validates flag combinations per the VMDK spec.
 func validateIncompatFlags(flags uint32) error {

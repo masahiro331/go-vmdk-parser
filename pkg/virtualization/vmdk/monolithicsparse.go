@@ -115,11 +115,7 @@ func (v *MonolithicSparseImage) TranslateOffset(off int64) (int64, int64, error)
 	}
 
 	grainOffset := gt.Entries[entryIndex]
-	if grainOffset == GTEEmpty {
-		return 0, 0, ErrDataNotPresent
-	}
-	// Per VMDK spec, GTE=1 is a valid sector offset when FlagUseZeroedGrainTableEntry is not set
-	if grainOffset == GTEZeroed && uint32(v.Header.Flag)&FlagUseZeroedGrainTableEntry != 0 {
+	if isGTEAbsent(grainOffset, uint32(v.Header.Flag)) {
 		return 0, 0, ErrDataNotPresent
 	}
 
