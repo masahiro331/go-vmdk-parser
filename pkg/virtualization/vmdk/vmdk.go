@@ -60,6 +60,14 @@ type VMDK struct {
 	rs io.ReadSeeker
 }
 
+func (v *VMDK) Size() int64 {
+	var size int64
+	for _, extent := range v.DiskDescriptor.Extents {
+		size += extent.Size
+	}
+	return size * Sector
+}
+
 type DiskDescriptor struct {
 	Version    int
 	CID        string
@@ -123,6 +131,11 @@ func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, err
 		if err != nil {
 			return nil, xerrors.Errorf("failed to new stream-optimized image: %w", err)
 		}
+	case MonolithicSparse:
+		r, err = NewMonolithicSparseImage(v)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to new monolithic-sparse image: %w", err)
+		}
 	default:
 		return nil, xerrors.Errorf("%s: %w", v.DiskDescriptor.CreateType, ErrUnSupportedType)
 	}
@@ -139,35 +152,7 @@ func ParseDiskDescriptor(rs io.ReadSeeker, header Header) (DiskDescriptor, error
 		return DiskDescriptor{}, xerrors.Errorf(ErrSeekOffsetFormat, i, header.DescriptorOffset*Sector)
 	}
 
-	var descriptor DiskDescriptor
-	scanner := bufio.NewScanner(io.LimitReader(rs, Sector*header.DescriptorSize))
-	var currentSectionFunc func(string, *DiskDescriptor) error
-	for {
-		if !scanner.Scan() {
-			break
-		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		switch strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "#"))) {
-		case SectionDiskDescriptorFile:
-			currentSectionFunc = parseDiskDescriptorFile
-		case SectionExtentDescription:
-			currentSectionFunc = parseExtentDescription
-		case SectionDiskDataBase, SectionDDB:
-			currentSectionFunc = parseDiskDataBase
-		default:
-			if currentSectionFunc == nil {
-				return DiskDescriptor{}, xerrors.Errorf("invalid descriptor")
-			}
-			err := currentSectionFunc(line, &descriptor)
-			if err != nil {
-				return DiskDescriptor{}, err
-			}
-		}
-	}
-	return descriptor, nil
+	return parseDescriptorLines(bufio.NewScanner(io.LimitReader(rs, Sector*header.DescriptorSize)))
 }
 
 func parseDiskDataBase(line string, dd *DiskDescriptor) error {
@@ -218,4 +203,35 @@ func parseDiskDescriptorFile(line string, dd *DiskDescriptor) error {
 		dd.ParentCID = strings.TrimPrefix(line, "parentCID=")
 	}
 	return nil
+}
+
+func parseDescriptorLines(scanner *bufio.Scanner) (DiskDescriptor, error) {
+	var descriptor DiskDescriptor
+	var currentSectionFunc func(string, *DiskDescriptor) error
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "#"))) {
+		case SectionDiskDescriptorFile:
+			currentSectionFunc = parseDiskDescriptorFile
+		case SectionExtentDescription:
+			currentSectionFunc = parseExtentDescription
+		case SectionDiskDataBase, SectionDDB:
+			currentSectionFunc = parseDiskDataBase
+		default:
+			if currentSectionFunc == nil {
+				return DiskDescriptor{}, xerrors.Errorf("invalid descriptor")
+			}
+			err := currentSectionFunc(line, &descriptor)
+			if err != nil {
+				return DiskDescriptor{}, err
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return DiskDescriptor{}, xerrors.Errorf("failed to scan descriptor: %w", err)
+	}
+	return descriptor, nil
 }

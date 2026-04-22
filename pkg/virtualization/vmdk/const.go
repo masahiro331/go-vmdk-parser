@@ -22,9 +22,9 @@ const (
 )
 
 const (
-	StreamOptimized = "streamOptimized"
+	StreamOptimized  = "streamOptimized"
+	MonolithicSparse = "monolithicSparse"
 	// Custom
-	// MonolithicSparse
 	// MonolithicFlat
 	// TwoGbMaxExtentSparse
 	// TwoGbMaxExtentFlat

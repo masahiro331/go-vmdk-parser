@@ -88,3 +88,100 @@ func TestParseDiskDescriptor(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenMonolithicSparse(t *testing.T) {
+	// Built by "qemu-img create -f vmdk vmdk-monolith.img 65536" command
+	f, err := os.Open("testdata/vmdk-monolith.img")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	sr, err := vmdk.Open(f, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Disk is 128 sectors = 65536 bytes
+	if sr.Size() != 65536 {
+		t.Errorf("Size() = %d, want 65536", sr.Size())
+	}
+
+	// The disk is empty (all sparse), so reading should return zeros
+	buf := make([]byte, 512)
+	n, err := sr.ReadAt(buf, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 512 {
+		t.Errorf("ReadAt() n = %d, want 512", n)
+	}
+	for i, b := range buf {
+		if b != 0 {
+			t.Errorf("ReadAt() byte[%d] = %d, want 0", i, b)
+			break
+		}
+	}
+}
+
+func TestOpenMonolithicSparseZeroFill(t *testing.T) {
+	f, err := os.Open("testdata/vmdk-monolith.img")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	sr, err := vmdk.Open(f, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-fill buffer with non-zero data to verify sparse regions are zeroed
+	buf := make([]byte, 512)
+	for i := range buf {
+		buf[i] = 0xFF
+	}
+
+	n, err := sr.ReadAt(buf, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 512 {
+		t.Errorf("ReadAt() n = %d, want 512", n)
+	}
+	for i, b := range buf {
+		if b != 0 {
+			t.Errorf("ReadAt() byte[%d] = 0x%02x, want 0x00 (sparse region must be zero-filled)", i, b)
+			break
+		}
+	}
+}
+
+func TestNewMonolithicSparseImageInvalidHeader(t *testing.T) {
+	tests := []struct {
+		name   string
+		header vmdk.Header
+	}{
+		{
+			name:   "GrainSize is zero",
+			header: vmdk.Header{GrainSize: 0, NumGTEsPerGT: 512, GdOffset: 1, Capacity: 128},
+		},
+		{
+			name:   "NumGTEsPerGT is zero",
+			header: vmdk.Header{GrainSize: 128, NumGTEsPerGT: 0, GdOffset: 1, Capacity: 128},
+		},
+		{
+			name:   "GdOffset is zero",
+			header: vmdk.Header{GrainSize: 128, NumGTEsPerGT: 512, GdOffset: 0, Capacity: 128},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := vmdk.VMDK{Header: tt.header}
+			_, err := vmdk.NewMonolithicSparseImage(v)
+			if err == nil {
+				t.Fatal("NewMonolithicSparseImage() should return error for invalid header")
+			}
+		})
+	}
+}
