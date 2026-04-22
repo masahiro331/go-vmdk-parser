@@ -80,8 +80,9 @@ func readAt(gr grainReader, p []byte, off int64) (int, error) {
 			if currentOff+zeroLen > totalSize {
 				zeroLen = totalSize - currentOff
 			}
-			for i := int64(0); i < zeroLen; i++ {
-				p[totalRead+int(i)] = 0
+			zeroSlice := p[totalRead : totalRead+int(zeroLen)]
+			for i := range zeroSlice {
+				zeroSlice[i] = 0
 			}
 			totalRead += int(zeroLen)
 			continue
