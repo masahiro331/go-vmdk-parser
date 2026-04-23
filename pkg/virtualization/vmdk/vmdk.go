@@ -45,6 +45,73 @@ type sectionReaderInterface interface {
 	Size() int64
 }
 
+// grainReader abstracts grain-level read operations shared by
+// StreamOptimizedImage and MonolithicSparseImage.
+type grainReader interface {
+	TranslateOffset(off int64) (grainOffset int64, dataOffset int64, err error)
+	read(grainOffset int64) ([]byte, error)
+	grainDataSize() int64
+	Size() int64
+}
+
+// readAt implements io.ReaderAt for any grainReader by looping over grains.
+func readAt(gr grainReader, p []byte, off int64) (int, error) {
+	totalSize := gr.Size()
+	if off >= totalSize {
+		return 0, io.EOF
+	}
+
+	grain := gr.grainDataSize()
+	totalRead := 0
+	for totalRead < len(p) {
+		currentOff := off + int64(totalRead)
+		if currentOff >= totalSize {
+			return totalRead, io.EOF
+		}
+
+		grainOff, dataOff, err := gr.TranslateOffset(currentOff)
+		if err == ErrDataNotPresent {
+			// Zero-fill up to next grain boundary or remaining buffer
+			zeroLen := grain - (currentOff % grain)
+			remaining := int64(len(p) - totalRead)
+			if zeroLen > remaining {
+				zeroLen = remaining
+			}
+			if currentOff+zeroLen > totalSize {
+				zeroLen = totalSize - currentOff
+			}
+			zeroSlice := p[totalRead : totalRead+int(zeroLen)]
+			for i := range zeroSlice {
+				zeroSlice[i] = 0
+			}
+			totalRead += int(zeroLen)
+			continue
+		} else if err != nil {
+			return totalRead, xerrors.Errorf("failed to translate offset: %w", err)
+		}
+
+		data, err := gr.read(grainOff)
+		if err != nil {
+			return totalRead, xerrors.Errorf("failed to read data: %w", err)
+		}
+
+		available := int64(len(data)) - dataOff
+		if available <= 0 {
+			return totalRead, xerrors.Errorf("invalid data offset %d for grain size %d", dataOff, len(data))
+		}
+		need := int64(len(p) - totalRead)
+		if need > available {
+			need = available
+		}
+		if currentOff+need > totalSize {
+			need = totalSize - currentOff
+		}
+		copy(p[totalRead:], data[dataOff:dataOff+need])
+		totalRead += int(need)
+	}
+	return totalRead, nil
+}
+
 var (
 	_                          sectionReaderInterface = &StreamOptimizedImage{}
 	ErrUnSupportedDividedImage                        = xerrors.New("divided images are not supported")
