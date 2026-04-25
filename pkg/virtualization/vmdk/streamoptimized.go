@@ -81,6 +81,10 @@ func parseSparseExtentHeader(rs io.ReadSeeker) (SparseExtentHeader, error) {
 		return SparseExtentHeader{}, xerrors.Errorf("invalid magick number: actual(0x%08x), expected(0x%08x)", h.MagicNumber, KDMV)
 	}
 
+	if err := validateIncompatFlags(h.Flags); err != nil {
+		return SparseExtentHeader{}, err
+	}
+
 	return h, nil
 }
 
@@ -226,7 +230,7 @@ func (v *StreamOptimizedImage) read(grainOffset int64) ([]byte, error) {
 	}
 	defer zr.Close()
 
-	grainDataSize := v.Header.GrainSize * Sector
+	grainDataSize := int64(v.SparseExtentHeader.GrainSize) * Sector
 	decompressedData := make([]byte, grainDataSize)
 	n, err := io.ReadFull(zr, decompressedData)
 	if err != nil {
@@ -240,7 +244,7 @@ func (v *StreamOptimizedImage) read(grainOffset int64) ([]byte, error) {
 }
 
 func (v *StreamOptimizedImage) grainDataSize() int64 {
-	return v.Header.GrainSize * Sector
+	return int64(v.SparseExtentHeader.GrainSize) * Sector
 }
 
 func (v *StreamOptimizedImage) ReadAt(p []byte, off int64) (int, error) {
@@ -327,7 +331,7 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 	// grainSize: 128
 	// sector: 512
 	// grain: 64KB (decompressed deflate)
-	grain := v.Header.GrainSize * Sector
+	grain := int64(v.SparseExtentHeader.GrainSize) * Sector
 
 	// number GTEs per GT: 512
 	// gtSize: 32MB
@@ -337,6 +341,9 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 	// gtSize: 32MB
 	// gtIndex: 1
 	gtIndex := off / gtSize
+	if gtIndex >= int64(len(v.GD.Entries)) {
+		return 0, 0, ErrDataNotPresent
+	}
 	gtOffset := int64(v.GD.Entries[gtIndex])
 	if gtOffset == 0 {
 		return 0, 0, ErrDataNotPresent
@@ -358,8 +365,11 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 	// entryIndex: 0
 	// grainOffset gt[entryOffset]
 	entryIndex := off % gtSize / grain
+	if entryIndex >= int64(len(gt.Entries)) {
+		return 0, 0, ErrDataNotPresent
+	}
 	grainOffset := gt.Entries[entryIndex]
-	if grainOffset == 0 {
+	if isGTEAbsent(grainOffset, v.SparseExtentHeader.Flags) {
 		return 0, 0, ErrDataNotPresent
 	}
 

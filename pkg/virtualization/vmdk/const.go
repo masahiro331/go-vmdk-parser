@@ -9,6 +9,22 @@ const (
 
 	// COWD = uint32(0x434f5744)
 	KDMV = uint32(0x564d444b)
+
+	// Sparse extent header flags
+	FlagUseZeroedGrainTableEntry = uint32(0x00000004)
+
+	// Incompatible flags (upper 16 bits)
+	FlagCompressed  = uint32(0x00010000)
+	FlagEmbeddedLBA = uint32(0x00020000)
+
+	knownIncompatFlags = FlagCompressed | FlagEmbeddedLBA
+	incompatFlagsMask  = uint32(0xFFFF0000)
+)
+
+const (
+	// GTE special values
+	GTEEmpty  = Entry(0) // Sparse: no data allocated
+	GTEZeroed = Entry(1) // Zeroed grain (only when FlagUseZeroedGrainTableEntry is set)
 )
 
 const (

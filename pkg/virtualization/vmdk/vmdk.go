@@ -166,7 +166,30 @@ func ParseHeader(r io.Reader) (Header, error) {
 	if header.Signature != KDMV {
 		return Header{}, xerrors.Errorf("invalid signature: actual(0x%08x), expected(0x%08x)", header.Signature, KDMV)
 	}
+	if err := validateIncompatFlags(uint32(header.Flag)); err != nil {
+		return Header{}, err
+	}
 	return header, nil
+}
+
+// isGTEAbsent returns true if the grain table entry indicates no data.
+// Per VMDK spec, GTE=1 is a valid sector offset when FlagUseZeroedGrainTableEntry is not set.
+func isGTEAbsent(entry Entry, flags uint32) bool {
+	return entry == GTEEmpty ||
+		(entry == GTEZeroed && flags&FlagUseZeroedGrainTableEntry != 0)
+}
+
+// validateIncompatFlags rejects unknown incompatible flags and
+// validates flag combinations per the VMDK spec.
+func validateIncompatFlags(flags uint32) error {
+	unknownIncompat := flags & incompatFlagsMask & ^knownIncompatFlags
+	if unknownIncompat != 0 {
+		return xerrors.Errorf("unknown incompatible flags: 0x%08x", unknownIncompat)
+	}
+	if flags&FlagEmbeddedLBA != 0 && flags&FlagCompressed == 0 {
+		return xerrors.Errorf("EMBEDDED_LBA flag requires COMPRESSED flag")
+	}
+	return nil
 }
 
 func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, error) {
