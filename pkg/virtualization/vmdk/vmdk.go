@@ -124,7 +124,6 @@ type VMDK struct {
 	DiskDescriptor DiskDescriptor
 	cache          Cache[string, []byte]
 
-	rs io.ReadSeeker
 	ra io.ReaderAt
 	// fileSize is the physical size of the underlying file in bytes,
 	// unlike Size, which is the logical disk size from the descriptor.
@@ -203,7 +202,7 @@ func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, err
 	if cache == nil {
 		cache = &mockCache[string, []byte]{}
 	}
-	v := VMDK{rs: rs, cache: cache}
+	v := VMDK{cache: cache}
 
 	cur, err := rs.Seek(0, io.SeekCurrent)
 	if err != nil {
@@ -223,12 +222,12 @@ func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, err
 		v.ra = &seekReaderAt{rs: rs}
 	}
 
-	v.Header, err = ParseHeader(v.rs)
+	v.Header, err = ParseHeader(rs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse header: %w", err)
 	}
 
-	v.DiskDescriptor, err = ParseDiskDescriptor(v.rs, v.Header)
+	v.DiskDescriptor, err = ParseDiskDescriptor(rs, v.Header)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse disk descriptor: %w", err)
 	}

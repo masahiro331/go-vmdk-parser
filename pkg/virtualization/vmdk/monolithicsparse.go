@@ -19,7 +19,7 @@ type MonolithicSparseImage struct {
 }
 
 func NewMonolithicSparseImage(v VMDK) (*MonolithicSparseImage, error) {
-	gd, err := parseGrainDirectoryDirect(v.rs, v.Header)
+	gd, err := parseGrainDirectoryDirect(v.ra, v.Header)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse grain directory: %w", err)
 	}
@@ -33,7 +33,7 @@ func NewMonolithicSparseImage(v VMDK) (*MonolithicSparseImage, error) {
 
 // parseGrainDirectoryDirect reads GD entries directly from the offset
 // specified in the header, without markers.
-func parseGrainDirectoryDirect(rs io.ReadSeeker, header Header) (GrainDirectory, error) {
+func parseGrainDirectoryDirect(ra io.ReaderAt, header Header) (GrainDirectory, error) {
 	if header.GdOffset <= 0 {
 		return GrainDirectory{}, xerrors.Errorf("invalid GdOffset: %d", header.GdOffset)
 	}
@@ -42,16 +42,9 @@ func parseGrainDirectoryDirect(rs io.ReadSeeker, header Header) (GrainDirectory,
 		return GrainDirectory{}, err
 	}
 
-	offset := header.GdOffset * Sector
-	off, err := rs.Seek(offset, io.SeekStart)
-	if err != nil {
-		return GrainDirectory{}, xerrors.Errorf("failed to seek to grain directory: %w", err)
-	}
-	if off != offset {
-		return GrainDirectory{}, xerrors.Errorf(ErrSeekOffsetFormat, off, offset)
-	}
 	entries := make([]Entry, numGDEntries)
-	if err := binary.Read(rs, binary.LittleEndian, entries); err != nil {
+	r := io.NewSectionReader(ra, header.GdOffset*Sector, numGDEntries*int64(binary.Size(Entry(0))))
+	if err := binary.Read(r, binary.LittleEndian, entries); err != nil {
 		return GrainDirectory{}, xerrors.Errorf("failed to read grain directory entries: %w", err)
 	}
 
@@ -68,17 +61,9 @@ func numGrainDirectoryEntries(header Header) (int64, error) {
 
 // parseGrainTableDirect reads GT entries directly from the offset, without markers.
 func (v *MonolithicSparseImage) parseGrainTableDirect(gtOffset int64) (GrainTable, error) {
-	offset := gtOffset * Sector
-	off, err := v.rs.Seek(offset, io.SeekStart)
-	if err != nil {
-		return GrainTable{}, xerrors.Errorf("failed to seek to grain table: %w", err)
-	}
-	if off != offset {
-		return GrainTable{}, xerrors.Errorf(ErrSeekOffsetFormat, off, offset)
-	}
-
 	entries := make([]Entry, v.Header.NumGTEsPerGT)
-	if err := binary.Read(v.rs, binary.LittleEndian, entries); err != nil {
+	r := io.NewSectionReader(v.ra, gtOffset*Sector, int64(len(entries)*binary.Size(Entry(0))))
+	if err := binary.Read(r, binary.LittleEndian, entries); err != nil {
 		return GrainTable{}, xerrors.Errorf("failed to read grain table entries: %w", err)
 	}
 
@@ -130,23 +115,9 @@ func (v *MonolithicSparseImage) read(grainOffset int64) ([]byte, error) {
 		return data, nil
 	}
 
-	offset := grainOffset * Sector
-	off, err := v.rs.Seek(offset, io.SeekStart)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to seek to grain data: %w", err)
-	}
-	if off != offset {
-		return nil, xerrors.Errorf(ErrSeekOffsetFormat, off, offset)
-	}
-
-	grainDataSize := v.Header.GrainSize * Sector
-	buf := make([]byte, grainDataSize)
-	n, err := io.ReadFull(v.rs, buf)
+	buf, err := readFullAt(v.ra, grainOffset*Sector, v.grainDataSize())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to read grain data: %w", err)
-	}
-	if int64(n) != grainDataSize {
-		return nil, xerrors.Errorf(ErrReadSizeFormat, n, grainDataSize)
 	}
 
 	v.cache.Add(cacheKey, buf)
