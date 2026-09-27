@@ -195,6 +195,11 @@ func validateIncompatFlags(flags uint32) error {
 	return nil
 }
 
+// Open parses a VMDK image and returns a reader for its logical disk.
+// The returned reader is safe for concurrent ReadAt calls as long as cache is.
+// If rs implements io.ReaderAt (e.g. *os.File), grains are read in parallel through it;
+// otherwise Seek+Read on rs is serialized internally.
+// rs must not be used by the caller while the returned reader is in use.
 func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, error) {
 	var err error
 

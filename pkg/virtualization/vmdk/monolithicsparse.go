@@ -3,6 +3,7 @@ package vmdk
 import (
 	"encoding/binary"
 	"io"
+	"sync"
 
 	"golang.org/x/xerrors"
 )
@@ -16,6 +17,9 @@ type MonolithicSparseImage struct {
 
 	GD      GrainDirectory
 	GTCache map[int64]GrainTable
+
+	// gtMu guards GTCache.
+	gtMu sync.Mutex
 }
 
 func NewMonolithicSparseImage(v VMDK) (*MonolithicSparseImage, error) {
@@ -84,14 +88,20 @@ func (v *MonolithicSparseImage) TranslateOffset(off int64) (int64, int64, error)
 		return 0, 0, ErrDataNotPresent
 	}
 
+	// The grain table is parsed outside the lock. Concurrent misses on the same
+	// gtOffset may parse it twice, which is harmless because a GrainTable is never modified.
+	v.gtMu.Lock()
 	gt, ok := v.GTCache[gtOffset]
+	v.gtMu.Unlock()
 	if !ok {
 		var err error
 		gt, err = v.parseGrainTableDirect(gtOffset)
 		if err != nil {
 			return 0, 0, xerrors.Errorf("failed to parse grain table entries: %w", err)
 		}
+		v.gtMu.Lock()
 		v.GTCache[gtOffset] = gt
+		v.gtMu.Unlock()
 	}
 
 	entryIndex := off % gtSize / grain

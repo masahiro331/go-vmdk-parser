@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/xerrors"
@@ -29,6 +30,9 @@ type StreamOptimizedImage struct {
 	SparseExtentHeader SparseExtentHeader
 	GD                 GrainDirectory
 	GTCache            map[int64]GrainTable
+
+	// gtMu guards GTCache.
+	gtMu sync.Mutex
 }
 
 type SparseExtentHeader struct {
@@ -300,14 +304,19 @@ func (v *StreamOptimizedImage) TranslateOffset(off int64) (int64, int64, error) 
 	if gtOffset == 0 {
 		return 0, 0, ErrDataNotPresent
 	}
-	var gt GrainTable
+	// The grain table is parsed outside the lock. Concurrent misses on the same
+	// gtOffset may parse it twice, which is harmless because a GrainTable is never modified.
+	v.gtMu.Lock()
 	gt, ok := v.GTCache[gtOffset]
+	v.gtMu.Unlock()
 	if !ok {
 		gt, err = v.parseGrainTableEntries(gtOffset)
 		if err != nil {
 			return 0, 0, xerrors.Errorf("failed to parse grain table entries: %w", err)
 		}
+		v.gtMu.Lock()
 		v.GTCache[gtOffset] = gt
+		v.gtMu.Unlock()
 	}
 
 	// logical grain data offset.
