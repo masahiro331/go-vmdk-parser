@@ -125,6 +125,10 @@ type VMDK struct {
 	cache          Cache[string, []byte]
 
 	rs io.ReadSeeker
+	ra io.ReaderAt
+	// fileSize is the physical size of the underlying file in bytes,
+	// unlike Size, which is the logical disk size from the descriptor.
+	fileSize int64
 }
 
 func (v *VMDK) Size() int64 {
@@ -200,6 +204,25 @@ func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, err
 		cache = &mockCache[string, []byte]{}
 	}
 	v := VMDK{rs: rs, cache: cache}
+
+	cur, err := rs.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get current offset: %w", err)
+	}
+	v.fileSize, err = rs.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get file size: %w", err)
+	}
+	if _, err = rs.Seek(cur, io.SeekStart); err != nil {
+		return nil, xerrors.Errorf("failed to restore offset: %w", err)
+	}
+
+	if ra, ok := rs.(io.ReaderAt); ok {
+		v.ra = ra
+	} else {
+		v.ra = &seekReaderAt{rs: rs}
+	}
+
 	v.Header, err = ParseHeader(v.rs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse header: %w", err)

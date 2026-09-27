@@ -4,6 +4,9 @@ var (
 	_ Cache[string, []byte] = &mockCache[string, []byte]{}
 )
 
+// Cache stores grain data.
+// Implementations must be safe for concurrent use,
+// because ReadAt on an opened image may be called from multiple goroutines.
 type Cache[K string, V any] interface {
 	// Add cache data
 	Add(key K, value V) bool
