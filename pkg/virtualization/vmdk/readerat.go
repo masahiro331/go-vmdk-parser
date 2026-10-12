@@ -31,6 +31,8 @@ func (r *seekReaderAt) ReadAt(p []byte, off int64) (int, error) {
 }
 
 // readFullAt reads exactly size bytes at off.
+// A short read is reported as an ErrReadSizeFormat error rather than io.EOF,
+// so that a truncated image is not mistaken for the end of the disk.
 func readFullAt(ra io.ReaderAt, off, size int64) ([]byte, error) {
 	buf := make([]byte, size)
 	n, err := ra.ReadAt(buf, off)
@@ -38,7 +40,7 @@ func readFullAt(ra io.ReaderAt, off, size int64) ([]byte, error) {
 		// io.ReaderAt may return io.EOF along with a full read at the end of input.
 		return buf, nil
 	}
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
 	return nil, xerrors.Errorf(ErrReadSizeFormat, n, size)
