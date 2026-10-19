@@ -124,7 +124,10 @@ type VMDK struct {
 	DiskDescriptor DiskDescriptor
 	cache          Cache[string, []byte]
 
-	rs io.ReadSeeker
+	ra io.ReaderAt
+	// fileSize is the physical size of the underlying file in bytes,
+	// unlike Size, which is the logical disk size from the descriptor.
+	fileSize int64
 }
 
 func (v *VMDK) Size() int64 {
@@ -192,6 +195,11 @@ func validateIncompatFlags(flags uint32) error {
 	return nil
 }
 
+// Open parses a VMDK image and returns a reader for its logical disk.
+// The returned reader is safe for concurrent ReadAt calls as long as cache is.
+// If rs implements io.ReaderAt (e.g. *os.File), grains are read in parallel through it;
+// otherwise Seek+Read on rs is serialized internally.
+// rs must not be used by the caller while the returned reader is in use.
 func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, error) {
 	var err error
 
@@ -199,13 +207,32 @@ func Open(rs io.ReadSeeker, cache Cache[string, []byte]) (*io.SectionReader, err
 	if cache == nil {
 		cache = &mockCache[string, []byte]{}
 	}
-	v := VMDK{rs: rs, cache: cache}
-	v.Header, err = ParseHeader(v.rs)
+	v := VMDK{cache: cache}
+
+	cur, err := rs.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get current offset: %w", err)
+	}
+	v.fileSize, err = rs.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get file size: %w", err)
+	}
+	if _, err = rs.Seek(cur, io.SeekStart); err != nil {
+		return nil, xerrors.Errorf("failed to restore offset: %w", err)
+	}
+
+	if ra, ok := rs.(io.ReaderAt); ok {
+		v.ra = ra
+	} else {
+		v.ra = &seekReaderAt{rs: rs}
+	}
+
+	v.Header, err = ParseHeader(rs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse header: %w", err)
 	}
 
-	v.DiskDescriptor, err = ParseDiskDescriptor(v.rs, v.Header)
+	v.DiskDescriptor, err = ParseDiskDescriptor(rs, v.Header)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse disk descriptor: %w", err)
 	}
